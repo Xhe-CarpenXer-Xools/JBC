@@ -198,6 +198,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg);font-size:13px
     <a href="tests/vectors.html" style="text-decoration:none;">
       <button class="btn accent" style="font-size:9px;padding:4px 10px;">▶ TESTS</button>
     </a>
+    <span class="pill" id="peerPill" title="Open in another tab to connect">PEERS 0</span>
   </div>
 </header>
 
@@ -342,6 +343,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg);font-size:13px
 <script src="core/query.js"></script>
 <script src="core/transport.js"></script>
 <script src="core/storage.js"></script>
+<script src="core/signaling.js"></script>
 
 <!-- ── UI SHELL (lens only — no protocol logic here) ───────────────────────── -->
 <script>
@@ -749,16 +751,41 @@ async function initRuntime() {
     log('TRANSPORT', 'received envelope id=' + envelope.id.slice(0,8) + ' from ' + envelope.sender.slice(0,16) + '...');
     renderMessages();
   });
-
-  // Bootstrap admin access
   await access.grant(identity.did, keyPair.privateKey, identity.did, 'admin');
   await access.grant(identity.did, keyPair.privateKey, identity.did, 'write');
+
+  // ── Network stack (WebRTC peer discovery via bootstrap BroadcastChannel) ──
+  let networkStack = null;
+  const updatePeerPill = (pm) => {
+    const n = pm ? pm.peers().length : 0;
+    const pill = document.getElementById('peerPill');
+    if (pill) { pill.textContent = 'PEERS ' + n; pill.className = n > 0 ? 'pill ok' : 'pill'; }
+  };
+  if (typeof JBC.createNetworkStack === 'function') {
+    try {
+      networkStack = await JBC.createNetworkStack({
+        nodeId: identity.did, transport,
+        onPeer: (peerId) => {
+          log('SYNC', 'WebRTC connected: ' + peerId.slice(0,20) + '…');
+          updatePeerPill(networkStack?.peerManager);
+        },
+        onPeerLost: (peerId) => {
+          log('SYNC', 'WebRTC disconnected: ' + peerId.slice(0,20) + '…');
+          updatePeerPill(networkStack?.peerManager);
+        },
+      });
+      log('OK', 'signaling bootstrap started — open another tab to connect');
+      updatePeerPill(networkStack.peerManager);
+    } catch (e) {
+      log('ERR', 'network stack init: ' + e.message);
+    }
+  }
 
   let kernelState = JBC.KernelState.genesis();
 
   runtime = {
     identity, keyPair, kernel, ledger, clock, access, sync, transport,
-    schemaRegistry, kernelState,
+    networkStack, schemaRegistry, kernelState,
     totalEvents: 0, totalAccepted: 0, totalRejected: 0,
 
     // submit: schema → access → ledger → kernel

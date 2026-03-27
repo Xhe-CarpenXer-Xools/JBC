@@ -1,43 +1,54 @@
 /**
- * JBC · signaling.js
- * WebRTC signaling and network bootstrap.
+ * JBC · signaling.js  (v2 — bootstrap BC fix)
  *
- * What was missing from transport.js:
- *   - addRTCChannel() accepted a DataChannel, but nothing created them.
- *   - No ICE exchange, no offer/answer handshake.
- *   - No bootstrap mechanism to find initial peers.
+ * ── BUGS FIXED ────────────────────────────────────────────────────────────────
  *
- * This module provides:
- *   1. SignalingChannel — relays SDP offers/answers + ICE candidates
- *      through whatever channel is available (BroadcastChannel for
- *      same-origin tabs; a URL-based signaling server for cross-origin).
+ *   BUG 1 — Circular dependency (root cause of "peers never connect")
+ *     Old: SignalingChannel.send() → transport.send() → needs WebRTC route
+ *          But WebRTC route requires SignalingChannel to work first.
+ *     Fix: Dedicated raw BroadcastChannel('jbc-signal:v1') is always open and
+ *          always reachable for same-origin tabs, with NO envelope wrapping.
+ *          This is tried FIRST, before transport. Bypasses the circular dep.
  *
- *   2. RTCPeerManager — manages the full WebRTC lifecycle per peer:
- *      createOffer → sendOffer → receiveAnswer → ICE → DataChannel open.
+ *   BUG 2 — Unsigned envelopes silently rejected
+ *     Old: transport.send(body, null, null, toId)  → sig:null
+ *          transport.receive() rejects "unsigned envelope rejected" (empty catch)
+ *     Fix: Signaling no longer uses transport envelopes for delivery.
+ *          Raw JSON over BC is not subject to transport signature validation.
  *
- *   3. Bootstrap — seed peer discovery from:
- *      a) a static peer list (known DIDs + signaling addresses)
- *      b) a rendezvous endpoint (POST did, GET peers)
- *      c) a BroadcastChannel announce (same-origin only)
+ *   BUG 3 — Offer collision / deadlock
+ *     Old: Both peers received each other's announce simultaneously and both
+ *          called _initiateConnection(). No tie-breaking → glare → deadlock.
+ *     Fix: Deterministic rule: only the peer with the HIGHER nodeId initiates
+ *          on receiving an announce. Lower-ID peer always answers.
+ *          _handleOffer() also handles late glare via ID-based tie-breaking.
  *
- * Integration:
- *   const pm = new RTCPeerManager({ nodeId, transport, signaling });
- *   await pm.bootstrap({ rendezvousUrl, staticPeers });
- *   // From now on, new peers are connected automatically.
- *   // transport.addRTCChannel() is called internally when channels open.
+ *   BUG 4 — signaling.js never loaded (file missing from index.html script tags)
+ *     Fix: <script src="core/signaling.js"> added to index.html after transport.js
  *
- * Signal message body types (sent via Transport):
- *   consensus.rtc.offer         { sdp, fromId, toId }
- *   consensus.rtc.answer        { sdp, fromId, toId }
- *   consensus.rtc.ice_candidate { candidate, fromId, toId }
- *   consensus.rtc.announce      { fromId, address? }
+ * ── Delivery layers (in order) ────────────────────────────────────────────────
+ *   1. Bootstrap BroadcastChannel  — raw JSON, always works before WebRTC
+ *   2. WebRTC DataChannel in-band  — used post-connection (via _transport._rtc)
+ *   3. HTTP signaling server       — optional, for cross-origin / cross-device
+ *
+ * ── Integration (API unchanged) ───────────────────────────────────────────────
+ *   const { signaling, peerManager } = await JBC.createNetworkStack({
+ *     nodeId, transport, onPeer: (id) => log('connected', id),
+ *   });
+ *
+ * Signal message types (raw JSON over bootstrap BC):
+ *   consensus.rtc.announce      { type, fromId, toId }
+ *   consensus.rtc.offer         { type, fromId, toId, sdp }
+ *   consensus.rtc.answer        { type, fromId, toId, sdp }
+ *   consensus.rtc.ice_candidate { type, fromId, toId, candidate }
  */
 
 'use strict';
 
-const RTC_CHANNEL_LABEL = 'jbc-data';
+const RTC_CHANNEL_LABEL  = 'jbc-data';
+const BOOTSTRAP_BC_NAME  = 'jbc-signal:v1';
+const CONNECTION_TIMEOUT = 20_000;
 
-// Default ICE servers — use STUN to discover public IP; add TURN for NAT traversal
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -46,89 +57,93 @@ const DEFAULT_ICE_SERVERS = [
 // ── SignalingChannel ───────────────────────────────────────────────────────────
 
 class SignalingChannel {
-  /**
-   * @param {object} opts
-   * @param {Transport}  opts.transport  - JBC Transport (for in-band signaling)
-   * @param {string}     [opts.serverUrl] - Optional: URL of an out-of-band signaling server
-   *                                        POST { type, payload } → 200
-   *                                        GET  /peers → [{ id, address }]
-   */
-  constructor({ transport, serverUrl }) {
+  constructor({ transport, serverUrl } = {}) {
     if (!transport) throw new TypeError('SignalingChannel requires transport');
-    this._transport  = transport;
-    this._serverUrl  = serverUrl ?? null;
-    this._handlers   = new Map(); // type → Set<fn(body)>
-  }
+    this._transport = transport;
+    this._serverUrl = serverUrl ?? null;
+    this._handlers  = new Map();
 
-  /**
-   * send(toId, type, payload) → Promise<void>
-   * Sends a signaling message to a specific peer.
-   * Tries in-band transport first; falls back to HTTP server if configured.
-   */
-  async send(toId, type, payload) {
-    const body = { type, ...payload, fromId: this._transport._nodeId, toId };
-
-    // In-band: send via Transport (BroadcastChannel or existing DataChannel)
+    // ── Bootstrap BroadcastChannel ──────────────────────────────────────────
+    // Plain JSON only. NOT routed through Transport envelopes.
+    // This is the ONLY path that exists before any WebRTC connection.
+    this._bc = null;
     try {
-      await this._transport.send(body, null, null, toId);
-      return;
-    } catch {}
-
-    // Out-of-band: POST to signaling server
-    if (this._serverUrl) {
-      await fetch(`${this._serverUrl}/signal`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ to: toId, type, payload }),
-      }).catch(() => {});
+      this._bc = new BroadcastChannel(BOOTSTRAP_BC_NAME);
+      this._bc.onmessage = (e) => {
+        const msg = e.data;
+        if (!msg?.type || !msg?.fromId) return;
+        if (msg.fromId === this._transport._nodeId) return; // own message
+        this._dispatch(msg.type, msg);
+      };
+    } catch (err) {
+      console.warn('[JBC signal] BroadcastChannel unavailable:', err.message);
     }
   }
 
   /**
-   * on(type, handler) → SignalingChannel
+   * send(toId, type, payload)
+   *
+   * 1. Bootstrap BC  — always; toId=null broadcasts to all same-origin tabs
+   * 2. Open DataChannel — in-band, once connected
+   * 3. HTTP server — if configured
    */
+  async send(toId, type, payload) {
+    const msg = {
+      type,
+      fromId: this._transport._nodeId,
+      toId:   toId ?? null,
+      ...payload,
+    };
+
+    // 1. Bootstrap BC (primary path — works before WebRTC)
+    try { this._bc?.postMessage(msg); } catch {}
+
+    // 2. In-band via open DataChannel (post-connection upgrade)
+    if (toId) {
+      const ch = this._transport._rtc?.get(toId);
+      if (ch?.readyState === 'open') {
+        try { ch.send(JSON.stringify({ _signaling: true, ...msg })); } catch {}
+      }
+    }
+
+    // 3. HTTP fallback
+    if (this._serverUrl) {
+      await fetch(`${this._serverUrl}/signal`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ to: toId, type, payload: msg }),
+      }).catch(() => {});
+    }
+  }
+
   on(type, handler) {
     if (!this._handlers.has(type)) this._handlers.set(type, new Set());
     this._handlers.get(type).add(handler);
     return this;
   }
 
-  /**
-   * _dispatch(type, body) → void
-   * Called by RTCPeerManager when it intercepts a signaling envelope.
-   */
   _dispatch(type, body) {
-    const handlers = this._handlers.get(type) ?? new Set();
-    for (const fn of handlers) {
-      try { fn(body); } catch {}
+    for (const fn of (this._handlers.get(type) ?? new Set())) {
+      try { fn(body); } catch (err) { console.warn('[JBC signal] handler error:', err); }
     }
   }
 
-  /**
-   * fetchPeers() → Promise<Array<{ id, address? }>>
-   * Queries the signaling server for known peers.
-   */
+  destroy() {
+    try { this._bc?.close(); } catch {}
+    this._bc = null;
+  }
+
   async fetchPeers() {
     if (!this._serverUrl) return [];
-    try {
-      const res = await fetch(`${this._serverUrl}/peers`);
-      if (!res.ok) return [];
-      return res.json();
-    } catch {
-      return [];
-    }
+    try { const r = await fetch(`${this._serverUrl}/peers`); return r.ok ? r.json() : []; }
+    catch { return []; }
   }
 
-  /**
-   * register(nodeId) → Promise<void>
-   * Registers this node with the signaling server so others can find it.
-   */
-  async register(nodeId, metadata = {}) {
+  async register(nodeId, meta = {}) {
     if (!this._serverUrl) return;
     await fetch(`${this._serverUrl}/register`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ id: nodeId, ...metadata }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: nodeId, ...meta }),
     }).catch(() => {});
   }
 }
@@ -136,142 +151,127 @@ class SignalingChannel {
 // ── RTCPeerManager ────────────────────────────────────────────────────────────
 
 class RTCPeerManager {
-  /**
-   * @param {object} opts
-   * @param {string}           opts.nodeId     - This node's stable ID
-   * @param {Transport}        opts.transport  - JBC Transport instance
-   * @param {SignalingChannel} opts.signaling  - SignalingChannel instance
-   * @param {RTCConfiguration} [opts.iceConfig] - ICE server config
-   * @param {Function}         [opts.onPeer]   - Called with peerId when a peer connects
-   * @param {Function}         [opts.onPeerLost] - Called with peerId when a peer disconnects
-   */
   constructor({ nodeId, transport, signaling, iceConfig, onPeer, onPeerLost }) {
     if (!nodeId)    throw new TypeError('RTCPeerManager requires nodeId');
     if (!transport) throw new TypeError('RTCPeerManager requires transport');
     if (!signaling) throw new TypeError('RTCPeerManager requires signaling');
 
-    this._nodeId    = nodeId;
-    this._transport = transport;
-    this._signaling = signaling;
-    this._iceConfig = iceConfig ?? { iceServers: DEFAULT_ICE_SERVERS };
-    this._onPeer    = onPeer    ?? (() => {});
+    this._nodeId     = nodeId;
+    this._transport  = transport;
+    this._signaling  = signaling;
+    this._iceConfig  = iceConfig ?? { iceServers: DEFAULT_ICE_SERVERS };
+    this._onPeer     = onPeer     ?? (() => {});
     this._onPeerLost = onPeerLost ?? (() => {});
-
-    // peerId → { pc: RTCPeerConnection, channel: RTCDataChannel, state }
-    this._peers     = new Map();
-    // peerId → buffered ICE candidates received before remote description was set
-    this._iceBuf    = new Map();
+    this._peers      = new Map();  // peerId → { pc, channel, state }
+    this._iceBuf     = new Map();  // peerId → ICECandidate[]
 
     this._registerSignalingHandlers();
+
+    // Intercept in-band signaling messages that arrive over open DataChannels
+    this._transport.on('*', (envelope) => {
+      const b = envelope.body;
+      if (b?._signaling && b?.type?.startsWith('consensus.rtc.')) {
+        this._signaling._dispatch(b.type, b);
+      }
+    });
   }
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
 
-  /**
-   * bootstrap({ rendezvousUrl?, staticPeers?, announceLocal? }) → Promise<void>
-   *
-   * rendezvousUrl:  URL of a signaling/rendezvous server
-   * staticPeers:    [{ id, address? }] — known peer IDs to connect to immediately
-   * announceLocal:  true → broadcast a 'consensus.rtc.announce' on BroadcastChannel
-   *                 so same-origin tabs can find this node without a server
-   */
   async bootstrap({ rendezvousUrl, staticPeers = [], announceLocal = true } = {}) {
-    // Register with rendezvous server
     if (rendezvousUrl) {
       this._signaling._serverUrl = rendezvousUrl;
       await this._signaling.register(this._nodeId);
       const serverPeers = await this._signaling.fetchPeers();
-      for (const peer of serverPeers) {
-        if (peer.id !== this._nodeId && !this._peers.has(peer.id)) {
-          staticPeers.push(peer);
-        }
+      for (const p of serverPeers) {
+        if (p.id !== this._nodeId && !this._peers.has(p.id)) staticPeers.push(p);
       }
     }
 
-    // Connect to static/discovered peers
-    for (const peer of staticPeers) {
-      if (peer.id !== this._nodeId) {
-        this._initiateConnection(peer.id).catch(() => {});
-      }
+    // Initiate to explicitly known static peers (we always win initiator role here)
+    for (const p of staticPeers) {
+      if (p.id !== this._nodeId) this._initiateConnection(p.id).catch(() => {});
     }
 
-    // Local announce — same-origin tabs answer automatically
+    // Announce via raw BroadcastChannel so other same-origin tabs discover us.
+    // This is plain JSON — NOT a Transport envelope, so no sig required.
     if (announceLocal) {
       try {
-        this._transport.send(
-          { type: 'consensus.rtc.announce', fromId: this._nodeId },
-          null, null, null
-        ).catch(() => {});
+        this._signaling._bc?.postMessage({
+          type:   'consensus.rtc.announce',
+          fromId: this._nodeId,
+          toId:   null,
+        });
       } catch {}
     }
   }
 
-  /**
-   * connect(peerId) → Promise<RTCDataChannel>
-   * Explicitly connect to a specific peer.
-   */
-  connect(peerId) {
-    return this._initiateConnection(peerId);
-  }
-
-  /**
-   * disconnect(peerId) → void
-   */
+  connect(peerId)    { return this._initiateConnection(peerId); }
   disconnect(peerId) {
-    const entry = this._peers.get(peerId);
-    if (entry) {
-      entry.pc.close();
-      this._peers.delete(peerId);
-      this._onPeerLost(peerId);
-    }
+    const e = this._peers.get(peerId);
+    if (e) { e.pc.close(); this._peers.delete(peerId); this._onPeerLost(peerId); }
   }
+  peers()            { return [...this._peers.keys()]; }
+  isConnected(id)    { return this._peers.get(id)?.channel?.readyState === 'open'; }
 
-  peers() {
-    return [...this._peers.keys()];
-  }
-
-  isConnected(peerId) {
-    const entry = this._peers.get(peerId);
-    return entry?.channel?.readyState === 'open';
-  }
-
-  // ── Offer/Answer handshake ─────────────────────────────────────────────────
+  // ── Handshake ─────────────────────────────────────────────────────────────
 
   async _initiateConnection(peerId) {
-    if (this._peers.has(peerId)) return this._peers.get(peerId).channel;
+    const existing = this._peers.get(peerId);
+    if (existing?.state === 'open') return existing.channel;
+    if (existing?.state === 'connecting') {
+      // Already in progress — wait on the same channel object
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), CONNECTION_TIMEOUT);
+        existing.channel?.addEventListener('open', () => { clearTimeout(t); resolve(existing.channel); }, { once: true });
+      });
+    }
 
-    const pc = this._createPeerConnection(peerId);
-    const channel = pc.createDataChannel(RTC_CHANNEL_LABEL, {
-      ordered:           true,
-      maxRetransmits:    3,
-    });
+    const pc      = this._createPeerConnection(peerId);
+    const channel = pc.createDataChannel(RTC_CHANNEL_LABEL, { ordered: true, maxRetransmits: 3 });
 
     this._peers.set(peerId, { pc, channel, state: 'connecting' });
     this._wireDataChannel(peerId, channel);
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-
-    await this._signaling.send(peerId, 'consensus.rtc.offer', {
-      sdp: offer.sdp,
-    });
+    await this._signaling.send(peerId, 'consensus.rtc.offer', { sdp: offer.sdp });
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this._peers.delete(peerId);
-        reject(new Error(`Connection to ${peerId} timed out`));
-      }, 15000);
-
-      channel.addEventListener('open', () => {
-        clearTimeout(timeout);
-        resolve(channel);
-      }, { once: true });
+      const t = setTimeout(() => {
+        if (this._peers.get(peerId)?.state !== 'open') {
+          this._peers.delete(peerId);
+          reject(new Error(`WebRTC timeout to ${peerId}`));
+        }
+      }, CONNECTION_TIMEOUT);
+      channel.addEventListener('open', () => { clearTimeout(t); resolve(channel); }, { once: true });
     });
   }
 
-  async _handleOffer({ sdp, fromId }) {
+  async _handleOffer({ sdp, fromId, toId }) {
+    if (toId && toId !== this._nodeId) return;
     if (fromId === this._nodeId) return;
-    if (this._peers.has(fromId)) return; // already connected
+
+    // ── Glare resolution ────────────────────────────────────────────────────
+    // Both peers called _initiateConnection simultaneously. The peer with the
+    // LOWER nodeId yields: it drops its half-open PC and processes the offer.
+    // The peer with the HIGHER nodeId ignores the offer (its own offer wins).
+    if (this._peers.has(fromId)) {
+      const e = this._peers.get(fromId);
+      if (e.state === 'connecting') {
+        if (this._nodeId < fromId) {
+          // We are lower → yield to their offer
+          e.pc.close();
+          this._peers.delete(fromId);
+          // fall through
+        } else {
+          // We are higher → our offer wins, ignore theirs
+          return;
+        }
+      } else {
+        return; // answering or open — ignore duplicate
+      }
+    }
 
     const pc = this._createPeerConnection(fromId);
     this._peers.set(fromId, { pc, channel: null, state: 'answering' });
@@ -281,48 +281,43 @@ class RTCPeerManager {
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
     await this._signaling.send(fromId, 'consensus.rtc.answer', { sdp: answer.sdp });
 
-    // DataChannel will be created by the initiating side; we receive it via ondatachannel
     pc.ondatachannel = (e) => {
-      const channel = e.channel;
-      this._peers.get(fromId).channel = channel;
-      this._wireDataChannel(fromId, channel);
+      const ch    = e.channel;
+      const entry = this._peers.get(fromId);
+      if (entry) entry.channel = ch;
+      this._wireDataChannel(fromId, ch);
     };
   }
 
-  async _handleAnswer({ sdp, fromId }) {
-    const entry = this._peers.get(fromId);
-    if (!entry) return;
-
-    await entry.pc.setRemoteDescription({ type: 'answer', sdp });
-    await this._flushIceBuffer(fromId, entry.pc);
+  async _handleAnswer({ sdp, fromId, toId }) {
+    if (toId && toId !== this._nodeId) return;
+    const e = this._peers.get(fromId);
+    if (!e) return;
+    await e.pc.setRemoteDescription({ type: 'answer', sdp });
+    await this._flushIceBuffer(fromId, e.pc);
   }
 
-  async _handleIceCandidate({ candidate, fromId }) {
+  async _handleIceCandidate({ candidate, fromId, toId }) {
+    if (toId && toId !== this._nodeId) return;
     if (!candidate) return;
-    const entry = this._peers.get(fromId);
-
-    if (!entry || !entry.pc.remoteDescription) {
-      // Buffer until remote description is set
+    const e = this._peers.get(fromId);
+    if (!e || !e.pc.remoteDescription) {
       if (!this._iceBuf.has(fromId)) this._iceBuf.set(fromId, []);
       this._iceBuf.get(fromId).push(candidate);
       return;
     }
-
-    await entry.pc.addIceCandidate(candidate).catch(() => {});
+    await e.pc.addIceCandidate(candidate).catch(() => {});
   }
 
   async _flushIceBuffer(peerId, pc) {
-    const buffered = this._iceBuf.get(peerId) ?? [];
+    const buf = this._iceBuf.get(peerId) ?? [];
     this._iceBuf.delete(peerId);
-    for (const c of buffered) {
-      await pc.addIceCandidate(c).catch(() => {});
-    }
+    for (const c of buf) await pc.addIceCandidate(c).catch(() => {});
   }
 
-  // ── RTCPeerConnection factory ──────────────────────────────────────────────
+  // ── RTCPeerConnection ──────────────────────────────────────────────────────
 
   _createPeerConnection(peerId) {
     const pc = new RTCPeerConnection(this._iceConfig);
@@ -336,8 +331,8 @@ class RTCPeerManager {
     };
 
     pc.onconnectionstatechange = () => {
-      const state = pc.connectionState;
-      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+      const s = pc.connectionState;
+      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
         this._peers.delete(peerId);
         this._onPeerLost(peerId);
       }
@@ -348,53 +343,52 @@ class RTCPeerManager {
 
   _wireDataChannel(peerId, channel) {
     channel.addEventListener('open', () => {
-      const entry = this._peers.get(peerId);
-      if (entry) entry.state = 'open';
+      const e = this._peers.get(peerId);
+      if (e) e.state = 'open';
       this._transport.addRTCChannel(peerId, channel);
       this._onPeer(peerId);
     });
-
     channel.addEventListener('close', () => {
       this._peers.delete(peerId);
       this._onPeerLost(peerId);
     });
-
-    // Messages are handled by the transport's own onmessage wired in addRTCChannel
   }
 
-  // ── Signaling handler registration ────────────────────────────────────────
+  // ── Handler wiring ─────────────────────────────────────────────────────────
 
   _registerSignalingHandlers() {
-    // Intercept signaling envelopes from transport
-    this._transport.on('consensus.rtc.offer',         (env) => this._handleOffer(env.body));
-    this._transport.on('consensus.rtc.answer',        (env) => this._handleAnswer(env.body));
-    this._transport.on('consensus.rtc.ice_candidate', (env) => this._handleIceCandidate(env.body));
-    this._transport.on('consensus.rtc.announce',      (env) => {
-      const { fromId } = env.body;
-      if (fromId && fromId !== this._nodeId && !this._peers.has(fromId)) {
-        // Someone announced themselves — we initiate the connection
+    const s = this._signaling;
+
+    s.on('consensus.rtc.offer',         (b) => this._handleOffer(b));
+    s.on('consensus.rtc.answer',        (b) => this._handleAnswer(b));
+    s.on('consensus.rtc.ice_candidate', (b) => this._handleIceCandidate(b));
+
+    s.on('consensus.rtc.announce', ({ fromId, toId }) => {
+      if (toId && toId !== this._nodeId) return;
+      if (!fromId || fromId === this._nodeId) return;
+      if (this._peers.has(fromId)) return;
+
+      // ── Deterministic initiator ────────────────────────────────────────────
+      // Only the HIGHER-ID peer initiates. This prevents both sides from
+      // calling _initiateConnection() simultaneously on announce receipt.
+      if (this._nodeId > fromId) {
         this._initiateConnection(fromId).catch(() => {});
       }
+      // Lower-ID peer waits for the inbound offer from the higher-ID peer.
     });
-
-    // Wire SignalingChannel dispatch into transport handlers (for server-relayed msgs)
-    this._signaling.on('consensus.rtc.offer',         (b) => this._handleOffer(b));
-    this._signaling.on('consensus.rtc.answer',        (b) => this._handleAnswer(b));
-    this._signaling.on('consensus.rtc.ice_candidate', (b) => this._handleIceCandidate(b));
   }
 }
 
 // ── Convenience factory ────────────────────────────────────────────────────────
 
-/**
- * createNetworkStack({ nodeId, transport, rendezvousUrl?, staticPeers?, iceConfig?, onPeer?, onPeerLost? })
- *   → Promise<{ signaling, peerManager }>
- *
- * One-call setup: creates SignalingChannel + RTCPeerManager and runs bootstrap.
- */
-async function createNetworkStack({ nodeId, transport, rendezvousUrl, staticPeers, iceConfig, onPeer, onPeerLost }) {
-  const signaling = new SignalingChannel({ transport, serverUrl: rendezvousUrl });
-  const peerManager = new RTCPeerManager({ nodeId, transport, signaling, iceConfig, onPeer, onPeerLost });
+async function createNetworkStack({
+  nodeId, transport, rendezvousUrl, staticPeers,
+  iceConfig, onPeer, onPeerLost,
+}) {
+  const signaling   = new SignalingChannel({ transport, serverUrl: rendezvousUrl });
+  const peerManager = new RTCPeerManager({
+    nodeId, transport, signaling, iceConfig, onPeer, onPeerLost,
+  });
   await peerManager.bootstrap({ rendezvousUrl, staticPeers, announceLocal: true });
   return { signaling, peerManager };
 }
@@ -403,8 +397,10 @@ async function createNetworkStack({ nodeId, transport, rendezvousUrl, staticPeer
 
 if (typeof window !== 'undefined') {
   window.JBC = window.JBC ?? {};
-  window.JBC.SignalingChannel  = SignalingChannel;
-  window.JBC.RTCPeerManager    = RTCPeerManager;
+  window.JBC.SignalingChannel   = SignalingChannel;
+  window.JBC.RTCPeerManager     = RTCPeerManager;
   window.JBC.createNetworkStack = createNetworkStack;
 }
-if (typeof module !== 'undefined') module.exports = { SignalingChannel, RTCPeerManager, createNetworkStack };
+if (typeof module !== 'undefined') {
+  module.exports = { SignalingChannel, RTCPeerManager, createNetworkStack };
+}
