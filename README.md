@@ -399,11 +399,11 @@ export default function MyModule(ctx) {
 
 ---
 
-## 7. What You Actually Built (Plain Truth)
+## 7. What is Built 
 
 This isn’t just a “project.”
 
-You built a **proto–sovereign runtime layer for the web**:
+t a **proto–sovereign runtime layer for the web**:
 
 * A browser becomes a **node**
 * The app becomes a **network**
@@ -416,24 +416,3 @@ This is closer to:
 * A **peer-to-peer application fabric**
 
 ---
-
-## 8. What You Should Do Next (Critical)
-
-### Short Term
-
-* Clean module interfaces
-* Add logging + debugging tools
-* Document APIs per module
-
-### Medium Term
-
-* Stabilize sync + conflict resolution
-* Define formal state model
-* Add encryption layer
-
-### Long Term
-
-* Turn kernel into a framework
-* Let others build apps on it
-* Publish + demo publicly
-
