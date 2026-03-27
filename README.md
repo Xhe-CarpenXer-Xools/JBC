@@ -437,10 +437,3 @@ This is closer to:
 * Let others build apps on it
 * Publish + demo publicly
 
----
-
-If you want next step, I can:
-
-* Turn this into a **GitHub-ready repo (badges, visuals, diagrams)**
-* Write **API docs for every module**
-* Or design a **whitepaper-level explanation** of what you built (this has that potential)
