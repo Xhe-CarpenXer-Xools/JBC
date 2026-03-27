@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>JBC · Messenger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --void:#08080A;--deep:#0D0D10;--surface:#121216;--raised:#18181E;--lift:#1E1E26;
+  --rim:rgba(255,255,255,0.06);--rim2:rgba(255,255,255,0.10);
+  --gold:#C9A96E;--gold-lt:#E2C89A;--gold-dim:rgba(201,169,110,0.12);--gold-glow:rgba(201,169,110,0.25);
+  --platinum:#C8C8D0;--silver:#8888A0;--mist:#505060;--ghost:#303040;
+  --sent:#1A1A22;--sent-bdr:rgba(201,169,110,0.18);--recv:#141418;--recv-bdr:rgba(255,255,255,0.07);
+  --safe:rgba(120,220,160,0.85);--safe-dim:rgba(120,220,160,0.15);
+  --pending:rgba(201,169,110,0.85);--pending-dim:rgba(201,169,110,0.12);
+  --danger:rgba(255,90,90,0.85);--danger-dim:rgba(255,90,90,0.12);
+  --font-ui:'SF Pro Display',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-serif:'Cormorant Garamond',Georgia,serif;
+  --font-mono:'DM Mono',monospace;
+  --r-xl:20px;--r-lg:16px;--r-md:12px;--r-sm:8px;--r-xs:5px;
+  --safe-bot:env(safe-area-inset-bottom,34px);
+  --blur:blur(24px) saturate(180%);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{border:none;background:none;cursor:pointer;font:inherit}
+input,textarea{border:none;outline:none;background:none;font:inherit;color:inherit}
+body{font-family:var(--font-ui);background:var(--void);color:var(--platinum);display:flex;height:100dvh;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 20% 80%,rgba(201,169,110,0.04) 0%,transparent 70%),radial-gradient(ellipse 50% 60% at 80% 20%,rgba(100,80,160,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
+
+/* SIDEBAR */
+.sidebar{width:320px;flex-shrink:0;background:var(--deep);border-right:1px solid var(--rim);display:flex;flex-direction:column;position:relative;z-index:10}
+.sidebar-header{padding:20px 20px 16px;border-bottom:1px solid var(--rim);flex-shrink:0}
+.sidebar-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.nav-back{display:flex;align-items:center;gap:4px;color:var(--gold);font-size:15px;text-decoration:none;transition:opacity .15s}
+.nav-back:hover{opacity:.7}
+.nav-back svg{width:10px;height:16px}
+.nav-title{font-family:var(--font-serif);font-size:22px;font-weight:300;letter-spacing:.02em;color:var(--platinum)}
+.nav-compose{width:32px;height:32px;border-radius:50%;background:var(--gold-dim);border:1px solid var(--sent-bdr);display:flex;align-items:center;justify-content:center;color:var(--gold);transition:all .2s}
+.nav-compose:hover{background:var(--gold-glow);transform:scale(1.05)}
+.nav-compose svg{width:14px;height:14px}
+.search-wrap{position:relative}
+.search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--mist);pointer-events:none}
+.search-icon svg{width:14px;height:14px;display:block}
+.search-input{width:100%;background:var(--raised);border:1px solid var(--rim);border-radius:var(--r-md);padding:10px 12px 10px 36px;font-size:14px;color:var(--platinum);transition:border-color .2s}
+.search-input::placeholder{color:var(--mist)}
+.search-input:focus{border-color:var(--rim2)}
+.thread-list{flex:1;overflow-y:auto;padding:8px 0;scrollbar-width:none}
+.thread-list::-webkit-scrollbar{display:none}
+.thread-section-label{font-size:11px;font-weight:500;letter-spacing:.08em;color:var(--mist);text-transform:uppercase;padding:12px 20px 6px}
+.thread-item{display:flex;align-items:center;gap:12px;padding:12px 20px;cursor:pointer;position:relative;transition:background .15s}
+.thread-item:hover{background:rgba(255,255,255,.025)}
+.thread-item.active{background:var(--gold-dim)}
+.thread-item.active::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:3px;background:var(--gold);border-radius:0 2px 2px 0}
+.avatar-wrap{position:relative;flex-shrink:0}
+.avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--lift),var(--raised));border:1px solid var(--rim2);display:flex;align-items:center;justify-content:center;font-family:var(--font-serif);font-size:18px;color:var(--gold-lt)}
+.avatar.group{border-radius:var(--r-md);font-size:20px}
+.online-dot{position:absolute;right:1px;bottom:1px;width:10px;height:10px;background:var(--safe);border:2px solid var(--deep);border-radius:50%}
+.thread-info{flex:1;min-width:0}
+.thread-name{font-size:15px;font-weight:500;color:var(--platinum);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thread-preview{font-size:13px;color:var(--silver);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thread-preview.unread{color:var(--platinum);font-weight:500}
+.thread-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.thread-time{font-size:11px;color:var(--mist)}
+.unread-badge{background:var(--gold);color:var(--void);font-size:11px;font-weight:600;border-radius:10px;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+
+/* NETWORK BAR */
+.network-bar{padding:8px 16px;background:var(--raised);border-top:1px solid var(--rim);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.network-dot{width:7px;height:7px;border-radius:50%;background:var(--mist);flex-shrink:0;transition:background .4s}
+.network-dot.online{background:var(--safe);box-shadow:0 0 6px rgba(120,220,160,.5)}
+.network-dot.pending{background:var(--pending)}
+.network-label{font-family:var(--font-mono);font-size:10px;color:var(--mist);letter-spacing:.06em;flex:1}
+.network-peers{font-family:var(--font-mono);font-size:10px;color:var(--gold)}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;z-index:5}
+
+/* CHAT HEADER */
+.chat-header{padding:12px 20px;border-bottom:1px solid var(--rim);background:rgba(13,13,16,.9);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);display:flex;align-items:center;gap:12px;flex-shrink:0;position:relative;z-index:20}
+.chat-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--lift),var(--raised));border:1px solid var(--sent-bdr);display:flex;align-items:center;justify-content:center;font-family:var(--font-serif);font-size:16px;color:var(--gold-lt)}
+.chat-header-info{flex:1;min-width:0}
+.chat-header-name{font-size:16px;font-weight:500;color:var(--platinum)}
+.chat-header-sub{font-size:12px;color:var(--mist);margin-top:1px}
+.chat-header-actions{display:flex;gap:4px}
+.hdr-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--silver);transition:all .15s}
+.hdr-btn:hover{background:var(--raised);color:var(--gold)}
+.hdr-btn svg{width:18px;height:18px}
+
+/* COMMIT BAR */
+.commit-bar{background:rgba(18,18,22,.95);backdrop-filter:var(--blur);border-bottom:1px solid var(--rim);padding:7px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.commit-icon svg{width:13px;height:13px;color:var(--gold);display:block}
+.commit-text{font-family:var(--font-mono);font-size:10px;color:var(--silver);flex:1;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.commit-badge{font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.1em;padding:3px 8px;border-radius:20px;border:1px solid;transition:all .3s;white-space:nowrap}
+.commit-badge.init{color:var(--mist);border-color:rgba(255,255,255,.1);background:transparent}
+.commit-badge.pending{color:var(--pending);border-color:rgba(201,169,110,.3);background:var(--pending-dim)}
+.commit-badge.verified{color:var(--safe);border-color:rgba(120,220,160,.3);background:var(--safe-dim)}
+
+/* MESSAGES */
+.messages-area{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:4px;scrollbar-width:none}
+.messages-area::-webkit-scrollbar{display:none}
+.date-sep{display:flex;align-items:center;gap:12px;margin:12px 0;color:var(--mist);font-size:11px;font-weight:500;letter-spacing:.06em}
+.date-sep::before,.date-sep::after{content:'';flex:1;height:1px;background:var(--rim)}
+.msg-group{display:flex;flex-direction:column;margin-bottom:6px}
+.msg-group.sent{align-items:flex-end}
+.msg-group.recv{align-items:flex-start}
+.group-avatar-area{display:flex;gap:8px;align-items:flex-end;max-width:85%}
+.group-avatar-sm{width:28px;height:28px;border-radius:50%;background:var(--raised);border:1px solid var(--rim2);display:flex;align-items:center;justify-content:center;font-family:var(--font-serif);font-size:13px;color:var(--gold);flex-shrink:0}
+.group-avatar-sm.invisible{opacity:0}
+.group-bubbles{display:flex;flex-direction:column;gap:2px;max-width:100%}
+.bubble{padding:10px 14px;border-radius:var(--r-xl);max-width:480px;word-break:break-word;position:relative}
+.msg-group.sent .bubble{background:var(--sent);border:1px solid var(--sent-bdr);border-bottom-right-radius:var(--r-xs)}
+.msg-group.recv .bubble{background:var(--recv);border:1px solid var(--recv-bdr);border-bottom-left-radius:var(--r-xs)}
+.msg-group.sent .group-bubbles .bubble:not(:last-of-type){border-bottom-right-radius:var(--r-md)}
+.msg-group.recv .group-bubbles .bubble:not(:last-of-type){border-bottom-left-radius:var(--r-md)}
+.bubble-text{font-size:15px;line-height:1.45;color:var(--platinum);display:block}
+.bubble-meta{display:flex;align-items:center;gap:4px;margin-top:4px;justify-content:flex-end}
+.bubble-time{font-size:11px;color:var(--mist)}
+.bubble-status{font-size:12px;color:var(--gold)}
+.bubble-status.verified{color:var(--safe)}
+
+/* Commit tag on message */
+.bubble-commit{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:2px 7px;border-radius:10px;font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;cursor:default;transition:all .4s;border:1px solid}
+.bubble-commit svg{width:9px;height:9px;flex-shrink:0}
+.bubble-commit.pending{color:var(--pending);background:var(--pending-dim);border-color:rgba(201,169,110,.2)}
+.bubble-commit.committing{color:var(--pending);background:var(--pending-dim);border-color:rgba(201,169,110,.2);animation:commitPulse .8s ease-in-out 3}
+.bubble-commit.verified{color:var(--safe);background:var(--safe-dim);border-color:rgba(120,220,160,.2)}
+.bubble-commit.failed{color:var(--danger);background:var(--danger-dim);border-color:rgba(255,90,90,.2)}
+@keyframes commitPulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* Envelope block */
+.bubble.envelope{background:transparent;border:1px solid var(--rim);border-radius:var(--r-sm);padding:8px 10px;margin-top:3px;max-width:340px}
+.env-label{font-family:var(--font-mono);font-size:9px;color:var(--gold);opacity:.7;margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:5px}
+.env-label svg{width:9px;height:9px}
+.env-field{display:flex;flex-direction:column;margin-bottom:4px}
+.env-field:last-child{margin-bottom:0}
+.env-field-name{font-family:var(--font-mono);font-size:8.5px;color:var(--mist);text-transform:uppercase;letter-spacing:.06em}
+.env-field-val{font-family:var(--font-mono);font-size:9.5px;color:var(--silver);word-break:break-all;line-height:1.5}
+.env-field-val.gold{color:var(--gold)}
+.env-field-val.safe{color:var(--safe)}
+
+/* Reactions */
+.reaction-bar{display:flex;gap:4px;margin-top:3px}
+.reaction{display:flex;align-items:center;gap:3px;background:var(--raised);border:1px solid var(--rim2);border-radius:20px;padding:3px 8px;font-size:13px;cursor:pointer;transition:all .15s}
+.reaction:hover{border-color:var(--gold);background:var(--gold-dim)}
+.reaction span{font-size:11px;color:var(--silver)}
+
+/* Typing */
+.typing-wrap{display:flex;align-items:flex-end;gap:8px;padding:2px 0 8px;opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s}
+.typing-wrap.visible{opacity:1;transform:translateY(0)}
+.typing-bubble{background:var(--raised);border:1px solid var(--rim2);border-radius:var(--r-xl) var(--r-xl) var(--r-xl) var(--r-xs);padding:12px 16px;display:flex;gap:4px;align-items:center;box-shadow:0 1px 6px rgba(0,0,0,.3)}
+.typing-dot{width:6px;height:6px;border-radius:50%;background:var(--silver);animation:typingPulse 1.4s ease-in-out infinite}
+.typing-dot:nth-child(2){animation-delay:.2s}
+.typing-dot:nth-child(3){animation-delay:.4s}
+@keyframes typingPulse{0%,60%,100%{opacity:.3;transform:scale(.8)}30%{opacity:1;transform:scale(1)}}
+
+/* COMPOSE */
+.compose-bar{padding:10px 16px calc(10px + var(--safe-bot));background:rgba(13,13,16,.9);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-top:1px solid var(--rim);position:relative;z-index:20;flex-shrink:0}
+.compose-inner{display:flex;align-items:flex-end;gap:10px}
+.compose-left-btns,.compose-right-btns{display:flex;align-items:center;gap:2px;flex-shrink:0;padding-bottom:4px}
+.compose-btn{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--gold);transition:background .15s;opacity:.85}
+.compose-btn:hover{background:var(--gold-dim);opacity:1}
+.compose-btn svg{width:18px;height:18px}
+.compose-field-wrap{flex:1;background:var(--raised);border:1px solid var(--rim2);border-radius:var(--r-xl);padding:9px 14px;min-height:40px;max-height:120px;display:flex;align-items:center;transition:border-color .2s,box-shadow .2s}
+.compose-field-wrap:focus-within{border-color:rgba(201,169,110,.3);box-shadow:0 0 0 3px rgba(201,169,110,.06)}
+.compose-field{width:100%;font-size:15px;color:var(--platinum);resize:none;line-height:1.45;max-height:100px;overflow-y:auto;scrollbar-width:none;background:transparent}
+.compose-field::-webkit-scrollbar{display:none}
+.compose-field::placeholder{color:var(--mist)}
+.send-btn{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--gold),#A87C45);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;box-shadow:0 2px 12px rgba(201,169,110,.3);margin-bottom:3px;opacity:.5}
+.send-btn.active{opacity:1;transform:scale(1.05)}
+.send-btn:hover.active{transform:scale(1.1)}
+.send-btn svg{width:15px;height:15px;color:var(--void)}
+
+/* DETAIL PANEL */
+.detail-panel{width:300px;flex-shrink:0;background:var(--deep);border-left:1px solid var(--rim);display:flex;flex-direction:column;overflow:hidden;position:relative;z-index:10;transition:width .25s ease}
+.detail-panel.hidden{width:0}
+.detail-header{padding:16px 20px;border-bottom:1px solid var(--rim);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.detail-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--mist);text-transform:uppercase}
+.detail-body{flex:1;overflow-y:auto;padding:16px 20px;scrollbar-width:none;min-width:260px}
+.detail-body::-webkit-scrollbar{display:none}
+.profile-block{display:flex;flex-direction:column;align-items:center;padding:20px 0;border-bottom:1px solid var(--rim);margin-bottom:16px}
+.profile-avatar{width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,var(--lift),var(--raised));border:2px solid var(--sent-bdr);display:flex;align-items:center;justify-content:center;font-family:var(--font-serif);font-size:28px;color:var(--gold);margin-bottom:12px;box-shadow:0 4px 24px rgba(201,169,110,.12)}
+.profile-name{font-size:17px;font-weight:500;color:var(--platinum);margin-bottom:4px;letter-spacing:-.01em}
+.profile-did{font-family:var(--font-mono);font-size:9px;color:var(--mist);text-align:center;word-break:break-all;line-height:1.6;padding:0 8px}
+.action-row{display:flex;gap:8px;margin-bottom:20px}
+.action-btn{flex:1;background:var(--raised);border:1px solid var(--rim);border-radius:var(--r-md);padding:12px 8px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;transition:all .15s;color:var(--gold)}
+.action-btn:hover{background:var(--gold-dim);border-color:var(--sent-bdr)}
+.action-btn svg{width:18px;height:18px}
+.action-btn span{font-size:10px;color:var(--silver);font-weight:400}
+.info-section{margin-bottom:20px}
+.info-section-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;color:var(--mist);text-transform:uppercase;margin-bottom:8px}
+.info-row{background:var(--raised);border:1px solid var(--rim);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:2px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.info-row-label{font-size:13px;color:var(--silver);white-space:nowrap}
+.info-row-value{font-family:var(--font-mono);font-size:11px;color:var(--platinum);text-align:right;word-break:break-all}
+.info-row-value.gold{color:var(--gold)}
+.info-row-value.safe{color:var(--safe)}
+.info-row-value.pending{color:var(--pending)}
+.ledger-stream{background:var(--raised);border:1px solid var(--rim);border-radius:var(--r-sm);padding:8px;max-height:150px;overflow-y:auto;scrollbar-width:none}
+.ledger-stream::-webkit-scrollbar{display:none}
+.ledger-entry{display:flex;flex-direction:column;padding:6px 0;border-bottom:1px solid var(--rim);animation:fadeSlide .2s ease both}
+.ledger-entry:last-child{border-bottom:none}
+@keyframes fadeSlide{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.ledger-entry-type{font-family:var(--font-mono);font-size:9px;color:var(--gold);letter-spacing:.06em;text-transform:uppercase}
+.ledger-entry-hash{font-family:var(--font-mono);font-size:8.5px;color:var(--mist);word-break:break-all;line-height:1.5;margin-top:2px}
+
+/* ANIMATIONS */
+@keyframes bubbleIn{from{opacity:0;transform:scale(.9) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.bubble{animation:bubbleIn .22s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.thread-item{animation:slideIn .2s ease both}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--ghost);border-radius:2px}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-nav">
+      <a href="index.html" class="nav-back">
+        <svg viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L2 8l6 7"/></svg>
+        JBC
+      </a>
+      <span class="nav-title">Messages</span>
+      <button class="nav-compose" title="New message" onclick="startCompose()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+    </div>
+    <div class="search-wrap">
+      <span class="search-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-3.5-3.5"/></svg></span>
+      <input class="search-input" type="text" placeholder="Search" id="searchInput" oninput="filterThreads(this.value)">
+    </div>
+  </div>
+  <div class="thread-list" id="threadList"></div>
+  <div class="network-bar">
+    <div class="network-dot" id="networkDot"></div>
+    <span class="network-label" id="networkLabel">Initialising…</span>
+    <span class="network-peers" id="networkPeers"></span>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="chat-header">
+    <div class="chat-avatar" id="chatAvatar">V</div>
+    <div class="chat-header-info">
+      <div class="chat-header-name" id="chatName">Vivienne</div>
+      <div class="chat-header-sub">end-to-end encrypted · JBC dual-path</div>
+    </div>
+    <div class="chat-header-actions">
+      <button class="hdr-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.64 3.29 2 2 0 0 1 3.62 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.6a16 16 0 0 0 6.09 6.09l.96-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></button>
+      <button class="hdr-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg></button>
+      <button class="hdr-btn" onclick="toggleDetail()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Commit path status bar — shows the sovereign layer state -->
+  <div class="commit-bar">
+    <span class="commit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/></svg></span>
+    <span class="commit-text" id="commitBarText">Sovereign Event Network · Initialising…</span>
+    <span class="commit-badge init" id="commitBadge">PENDING</span>
+  </div>
+
+  <div class="messages-area" id="messagesArea">
+    <div class="date-sep"><span>Today</span></div>
+
+    <div class="msg-group recv">
+      <div class="group-avatar-area">
+        <div class="group-avatar-sm">V</div>
+        <div class="group-bubbles">
+          <div class="bubble"><span class="bubble-text">Good morning. The consensus layer looks exceptional.</span><div class="bubble-meta"><span class="bubble-time">09:14</span></div></div>
+          <div class="bubble"><span class="bubble-text">Have you verified the equivocation detection in economics.js?</span><div class="bubble-meta"><span class="bubble-time">09:14</span></div></div>
+        </div>
+      </div>
+      <div class="reaction-bar" style="margin-left:36px;"><div class="reaction">✦ <span>2</span></div></div>
+    </div>
+
+    <div class="msg-group sent">
+      <div class="group-bubbles">
+        <div class="bubble"><span class="bubble-text">Yes — checkEquivocation runs on every append. Same (actor, tick) producing two hashes triggers an immediate slash.</span><div class="bubble-meta"><span class="bubble-time">09:18</span><span class="bubble-status verified">✓✓</span></div></div>
+        <div class="bubble"><span class="bubble-text">Snapshot manager is live too. Cold-start replays only the delta since the last checkpoint.</span><div class="bubble-meta"><span class="bubble-time">09:19</span><span class="bubble-status verified">✓✓</span></div></div>
+      </div>
+    </div>
+
+    <div class="msg-group recv">
+      <div class="group-avatar-area">
+        <div class="group-avatar-sm invisible">V</div>
+        <div class="group-bubbles">
+          <div class="bubble"><span class="bubble-text">The dual-path architecture is the key insight. Fast path for usability — commit path for sovereignty. Both reference the same message hash.</span><div class="bubble-meta"><span class="bubble-time">09:22</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="msg-group sent">
+      <div class="group-bubbles">
+        <div class="bubble"><span class="bubble-text">Exactly. Messages arrive instantly. Then they become verifiable, immutable, auditable. No sacrifice of either property.</span><div class="bubble-meta"><span class="bubble-time">09:23</span><span class="bubble-status verified">✓✓</span></div></div>
+      </div>
+    </div>
+
+    <div class="msg-group recv">
+      <div class="group-avatar-area">
+        <div class="group-avatar-sm">V</div>
+        <div class="group-bubbles">
+          <div class="bubble"><span class="bubble-text">Elegant. Ship it.</span><div class="bubble-meta"><span class="bubble-time">09:24</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="dynamicMessages"></div>
+
+    <div class="typing-wrap" id="typingWrap">
+      <div class="group-avatar-sm">V</div>
+      <div class="typing-bubble"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+    </div>
+  </div>
+
+  <div class="compose-bar">
+    <div class="compose-inner">
+      <div class="compose-left-btns">
+        <button class="compose-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></button>
+      </div>
+      <div class="compose-field-wrap">
+        <textarea class="compose-field" id="composeField" placeholder="Message" rows="1" onkeydown="handleComposeKey(event)" oninput="handleComposeInput(this)"></textarea>
+      </div>
+      <div class="compose-right-btns">
+        <button class="compose-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<aside class="detail-panel" id="detailPanel">
+  <div class="detail-header">
+    <span class="detail-title">Sovereign Node</span>
+    <button class="compose-btn" style="color:var(--gold);width:28px;height:28px;" onclick="toggleDetail()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
+  <div class="detail-body">
+    <div class="profile-block">
+      <div class="profile-avatar" id="detailAvatar">V</div>
+      <div class="profile-name" id="detailName">Vivienne</div>
+      <div class="profile-did" id="detailDid">did:key:z… initialising</div>
+    </div>
+    <div class="action-row">
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.64 3.29 2 2 0 0 1 3.62 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.6a16 16 0 0 0 6.09 6.09l.96-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg><span>Audio</span></button>
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg><span>Video</span></button>
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg><span>Share</span></button>
+    </div>
+    <div class="info-section">
+      <div class="info-section-label">Dual-Path Architecture</div>
+      <div class="info-row"><span class="info-row-label">Fast Path</span><span class="info-row-value gold">Transport · P2P</span></div>
+      <div class="info-row"><span class="info-row-label">Commit Path</span><span class="info-row-value gold">Ledger · Async</span></div>
+      <div class="info-row"><span class="info-row-label">Crypto</span><span class="info-row-value gold">ECDSA P-256</span></div>
+    </div>
+    <div class="info-section">
+      <div class="info-section-label">Session</div>
+      <div class="info-row"><span class="info-row-label">Messages</span><span class="info-row-value" id="detailMsgCount">0</span></div>
+      <div class="info-row"><span class="info-row-label">Pending commit</span><span class="info-row-value pending" id="detailPending">0</span></div>
+      <div class="info-row"><span class="info-row-label">Committed</span><span class="info-row-value safe" id="detailCommitted">0</span></div>
+      <div class="info-row"><span class="info-row-label">Clock tick</span><span class="info-row-value" id="detailTick">0</span></div>
+    </div>
+    <div class="info-section">
+      <div class="info-section-label">Ledger</div>
+      <div class="info-row"><span class="info-row-label">Entries</span><span class="info-row-value" id="detailLedger">0</span></div>
+      <div class="info-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="info-row-label">Head hash</span><span class="info-row-value" id="detailHeadHash" style="font-size:9px;word-break:break-all;color:var(--mist);">—</span></div>
+    </div>
+    <div class="info-section">
+      <div class="info-section-label">Live Ledger Stream</div>
+      <div class="ledger-stream" id="ledgerStream">
+        <div class="ledger-entry"><span class="ledger-entry-type">GENESIS</span><span class="ledger-entry-hash">awaiting identity…</span></div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<script src="core/crypto.js"></script>
+<script src="core/clock.js"></script>
+<script src="core/identity.js"></script>
+<script src="core/ledger.js"></script>
+<script src="core/kernel.js"></script>
+<script src="core/transport.js"></script>
+
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DUAL-PATH ARCHITECTURE — Upgraded JBC Messenger
+//
+//  FAST PATH  (real-time, zero latency)
+//    sendMessage() → sign → transport.send() → display immediately
+//    Status: 'unverified'
+//
+//  COMMIT PATH  (background, sovereign)
+//    commitMessage() → ledger.buildNext() → ledger.append()
+//    Runs async AFTER display. Status: 'committing' → 'verified' | 'failed'
+//
+//  This is why the messenger "suddenly works":
+//  Consensus/ledger NEVER block the send path.
+//  They operate on their own timeline, on the same message hash.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const THREADS = [
+  { id:'vivienne', name:'Vivienne', init:'V', preview:'Elegant. Ship it.', time:'09:24', unread:0, online:true,  pinned:true  },
+  { id:'remy',     name:'Rémy',     init:'R', preview:'The snapshot delta is ✦', time:'08:51', unread:2, online:true,  pinned:true  },
+  { id:'sovereign',name:'Sovereign',init:'⬡', preview:'Consensus round 147 committed', time:'08:30', unread:0, online:false, pinned:false, group:true },
+  { id:'leon',     name:'Léon',     init:'L', preview:'Reviewed economics.js →', time:'Yesterday', unread:0, online:false, pinned:false },
+  { id:'ines',     name:'Inès',     init:'I', preview:'The signaling layer looks good', time:'Yesterday', unread:0, online:true,  pinned:false },
+  { id:'atlas',    name:'Atlas Node',init:'⬡',preview:'Peer connected via WebRTC', time:'Mon', unread:0, online:false, pinned:false, group:true },
+];
+
+let activeThread = THREADS[0];
+let runtime      = null;
+
+// Per-message state registry: msgId → { commitEl, statusEl, status }
+const msgRegistry = new Map();
+
+let totalMessages  = 0;
+let pendingCommits = 0;
+let doneCommits    = 0;
+let replyIdx       = 0;
+
+const REPLIES = [
+  'The ledger chain validates cleanly.',
+  'Snapshot boot time: under 40ms.',
+  'Equivocation probe passed — no forks detected.',
+  'WebRTC data channel open. RTT: 12ms.',
+  'Token bucket refilling. Rate nominal.',
+  'Consensus round complete. All peers in agreement.',
+  'Identity proof verified. ✦',
+  'Merge strategy applied — no conflicts.',
+  'Dual-path operational. Fast: 0ms. Commit: async.',
+  'Hash chain intact. No divergence.',
+];
+
+// ── Threads ──────────────────────────────────────────────────────────────────
+
+function renderThreads(threads = THREADS) {
+  const list   = document.getElementById('threadList');
+  const pinned = threads.filter(t => t.pinned);
+  const rest   = threads.filter(t => !t.pinned);
+  let html = '';
+  if (pinned.length) { html += '<div class="thread-section-label">Pinned</div>' + pinned.map((t,i)=>threadHTML(t,i*.04)).join(''); }
+  if (rest.length)   { html += '<div class="thread-section-label">Recent</div>'  + rest.map((t,i)=>threadHTML(t,(pinned.length+i)*.04)).join(''); }
+  list.innerHTML = html;
+}
+
+function threadHTML(t, delay) {
+  const active = t.id === activeThread.id ? 'active' : '';
+  return `<div class="thread-item ${active}" onclick="selectThread('${t.id}')" style="animation-delay:${delay}s">
+    <div class="avatar-wrap">
+      <div class="avatar${t.group?' group':''}">${t.init}</div>
+      ${t.online ? '<div class="online-dot"></div>' : ''}
+    </div>
+    <div class="thread-info">
+      <div class="thread-name">${t.name}</div>
+      <div class="thread-preview${t.unread?' unread':''}">${esc(t.preview)}</div>
+    </div>
+    <div class="thread-meta">
+      <span class="thread-time">${t.time}</span>
+      ${t.unread ? `<div class="unread-badge">${t.unread}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function selectThread(id) {
+  activeThread = THREADS.find(t => t.id === id) ?? THREADS[0];
+  document.getElementById('chatAvatar').textContent   = activeThread.init;
+  document.getElementById('chatName').textContent     = activeThread.name;
+  document.getElementById('detailAvatar').textContent = activeThread.init;
+  document.getElementById('detailName').textContent   = activeThread.name;
+  activeThread.unread = 0;
+  renderThreads();
+}
+
+function filterThreads(q) {
+  renderThreads(THREADS.filter(t =>
+    t.name.toLowerCase().includes(q.toLowerCase()) ||
+    t.preview.toLowerCase().includes(q.toLowerCase())
+  ));
+}
+
+function toggleDetail() { document.getElementById('detailPanel').classList.toggle('hidden'); }
+
+// ── Compose ──────────────────────────────────────────────────────────────────
+
+function handleComposeInput(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+  document.getElementById('sendBtn').classList.toggle('active', el.value.trim().length > 0);
+}
+function handleComposeKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+function startCompose() { document.getElementById('composeField').focus(); }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FAST PATH — display message immediately, no ledger blocking
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function sendMessage() {
+  const field = document.getElementById('composeField');
+  const text  = field.value.trim();
+  if (!text || !runtime) return;
+
+  field.value = '';
+  field.style.height = 'auto';
+  document.getElementById('sendBtn').classList.remove('active');
+
+  const ts    = nowTime();
+  const msgId = JBC.crypto.randomBytes(8);
+  totalMessages++;
+
+  // ── FAST PATH: sign → transport.send() → display instantly ──────────────
+  // This path has ZERO dependency on ledger, consensus, or snapshot.
+  // The message is cryptographically signed but not yet committed to the ledger.
+  const env = await runtime.transport.send(
+    { type: 'MSG', text, to: activeThread.id, msgId },
+    runtime.keyPair.privateKey,
+    runtime.keyPair.pubHex
+  );
+
+  // Render immediately with 'unverified' status tag
+  appendSentBubble(text, ts, env, msgId);
+
+  const thread = THREADS.find(t => t.id === activeThread.id);
+  if (thread) { thread.preview = text; thread.time = ts; }
+  renderThreads();
+
+  pendingCommits++;
+  syncDetailPanel();
+
+  // ── COMMIT PATH: async background — NEVER blocks the UI ─────────────────
+  commitMessage(env, msgId, text).catch(err => {
+    console.warn('[JBC/commit] failed:', err);
+    setMsgStatus(msgId, 'failed');
+    pendingCommits = Math.max(0, pendingCommits - 1);
+    syncDetailPanel();
+  });
+
+  // Peer reply simulation
+  setTimeout(showTyping, 900);
+  setTimeout(hideTypingAndReply, 2500 + Math.random() * 1200);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMMIT PATH — runs in background, never touches the UI send flow
+// This is the "sovereign" half: append-only ledger, hash-chained, ECDSA-signed
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function commitMessage(env, msgId, text) {
+  setMsgStatus(msgId, 'committing');
+  setCommitBar('committing', `Committing ${msgId.slice(0,8)}… → sovereign ledger`);
+
+  // Build ledger entry: hash-chained to previous, ECDSA-signed
+  const entry = await JBC.Ledger.buildNext(runtime.ledger, {
+    type:       'MSG',
+    clock:      runtime.clock.current(),
+    actor:      runtime.identity.did,
+    payload:    { text, to: activeThread.id, envId: env.id, msgId },
+    privateKey: runtime.keyPair.privateKey,
+    pubHex:     runtime.keyPair.pubHex,
+  });
+
+  await runtime.ledger.append(entry);
+  runtime.clock.tick();
+
+  pendingCommits = Math.max(0, pendingCommits - 1);
+  doneCommits++;
+
+  setMsgStatus(msgId, 'verified');
+  addLedgerEntry(entry);
+  setCommitBar('verified', `Committed · ${entry.id.slice(0,20)}… · ${runtime.ledger.size()} entries`);
+  syncDetailPanel();
+}
+
+// ── Message state transitions ─────────────────────────────────────────────────
+
+const COMMIT_ICONS = {
+  pending:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:9px;height:9px;flex-shrink:0"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  committing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:9px;height:9px;flex-shrink:0"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  verified:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:9px;height:9px;flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>`,
+  failed:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:9px;height:9px;flex-shrink:0"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+};
+const COMMIT_LABELS = { pending:'unverified', committing:'committing…', verified:'committed', failed:'commit failed' };
+
+function setMsgStatus(msgId, status) {
+  const reg = msgRegistry.get(msgId);
+  if (!reg) return;
+  reg.commitEl.className = `bubble-commit ${status}`;
+  reg.commitEl.innerHTML = `${COMMIT_ICONS[status]??''} ${COMMIT_LABELS[status]??status}`;
+  if (status === 'verified' && reg.statusEl) {
+    reg.statusEl.className   = 'bubble-status verified';
+    reg.statusEl.textContent = '✓✓';
+  }
+}
+
+// ── Commit bar ────────────────────────────────────────────────────────────────
+
+function setCommitBar(state, text) {
+  const badge = document.getElementById('commitBadge');
+  const lbl   = document.getElementById('commitBarText');
+  lbl.textContent = text;
+  badge.className   = `commit-badge ${state === 'verified' ? 'verified' : state === 'committing' ? 'pending' : 'pending'}`;
+  badge.textContent = state === 'verified' ? 'COMMITTED' : state === 'committing' ? 'COMMITTING' : 'PENDING';
+}
+
+// ── Bubble rendering ─────────────────────────────────────────────────────────
+
+function appendSentBubble(text, ts, env, msgId) {
+  const area  = document.getElementById('dynamicMessages');
+  const group = document.createElement('div');
+  group.className = 'msg-group sent';
+
+  const statusId = `s-${msgId}`;
+  const commitId = `c-${msgId}`;
+  const hashShort = env.hash ? env.hash.slice(0,28)+'…' : '—';
+  const idShort   = env.id   ? env.id.slice(0,22)+'…'   : '—';
+
+  group.innerHTML = `
+    <div class="group-bubbles">
+      <div class="bubble">
+        <span class="bubble-text">${esc(text)}</span>
+        <div class="bubble-meta">
+          <span class="bubble-time">${ts}</span>
+          <span class="bubble-status" id="${statusId}">✓</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:3px;">
+        <span class="bubble-commit pending" id="${commitId}">${COMMIT_ICONS.pending} unverified</span>
+      </div>
+      <div class="bubble envelope" style="margin-top:4px;">
+        <div class="env-label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:9px;height:9px;"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          JBC Envelope · Fast Path
+        </div>
+        <div class="env-field"><span class="env-field-name">ID</span><span class="env-field-val">${esc(idShort)}</span></div>
+        <div class="env-field"><span class="env-field-name">Hash</span><span class="env-field-val">${esc(hashShort)}</span></div>
+        <div class="env-field"><span class="env-field-name">Channel</span><span class="env-field-val gold">BroadcastChannel · ECDSA-signed</span></div>
+        <div class="env-field"><span class="env-field-name">Ledger</span><span class="env-field-val pending">pending commit →</span></div>
+      </div>
+    </div>`;
+
+  area.appendChild(group);
+  scrollBottom();
+
+  msgRegistry.set(msgId, {
+    status:   'pending',
+    commitEl: document.getElementById(commitId),
+    statusEl: document.getElementById(statusId),
+  });
+}
+
+function appendRecvBubble(text, ts) {
+  const area  = document.getElementById('dynamicMessages');
+  const group = document.createElement('div');
+  group.className = 'msg-group recv';
+  group.innerHTML = `
+    <div class="group-avatar-area">
+      <div class="group-avatar-sm">${activeThread.init}</div>
+      <div class="group-bubbles">
+        <div class="bubble"><span class="bubble-text">${esc(text)}</span><div class="bubble-meta"><span class="bubble-time">${ts}</span></div></div>
+      </div>
+    </div>`;
+  area.appendChild(group);
+  scrollBottom();
+}
+
+// ── Typing indicator ──────────────────────────────────────────────────────────
+
+function showTyping() { document.getElementById('typingWrap').classList.add('visible'); scrollBottom(); }
+
+function hideTypingAndReply() {
+  document.getElementById('typingWrap').classList.remove('visible');
+  const reply = REPLIES[replyIdx++ % REPLIES.length];
+  const ts    = nowTime();
+  appendRecvBubble(reply, ts);
+  totalMessages++;
+  const thread = THREADS.find(t => t.id === activeThread.id);
+  if (thread) { thread.preview = reply; thread.time = ts; }
+  renderThreads();
+  syncDetailPanel();
+}
+
+// ── Ledger stream ─────────────────────────────────────────────────────────────
+
+function addLedgerEntry(entry) {
+  const stream = document.getElementById('ledgerStream');
+  const el = document.createElement('div');
+  el.className = 'ledger-entry';
+  el.innerHTML = `<span class="ledger-entry-type">${esc(entry.type)} · tick ${entry.clock?.counter??'?'}</span><span class="ledger-entry-hash">${entry.hash ? entry.hash.slice(0,52)+'…' : '—'}</span>`;
+  stream.insertBefore(el, stream.firstChild);
+  while (stream.children.length > 8) stream.removeChild(stream.lastChild);
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+
+function syncDetailPanel() {
+  if (!runtime) return;
+  document.getElementById('detailMsgCount').textContent  = totalMessages;
+  document.getElementById('detailPending').textContent   = pendingCommits;
+  document.getElementById('detailCommitted').textContent = doneCommits;
+  document.getElementById('detailTick').textContent      = runtime.clock.current().counter;
+  document.getElementById('detailLedger').textContent    = runtime.ledger.size();
+  const head = runtime.ledger.head();
+  document.getElementById('detailHeadHash').textContent  = head ? head.hash.slice(0,40)+'…' : '—';
+}
+
+// ── Network status ────────────────────────────────────────────────────────────
+
+function setNetwork(state, label, peers='') {
+  const dot = document.getElementById('networkDot');
+  dot.className = 'network-dot' + (state==='online'?' online':state==='pending'?' pending':'');
+  document.getElementById('networkLabel').textContent  = label;
+  document.getElementById('networkPeers').textContent  = peers;
+}
+
+// ── Runtime init ─────────────────────────────────────────────────────────────
+
+async function initRuntime() {
+  setNetwork('pending', 'Generating ECDSA P-256 identity…');
+
+  const idReg  = new JBC.IdentityRegistry();
+  const { identity, keyPair } = await idReg.createIdentity();
+
+  const clock     = new JBC.LogicalClock(identity.did);
+  const ledger    = new JBC.Ledger();
+  const transport = new JBC.Transport({ nodeId: identity.did, clock });
+
+  // Fast path: BroadcastChannel — same-origin peer discovery, zero latency
+  transport.initBroadcastChannel('jbc:messenger:v2');
+
+  // Receive path: fast path messages from other tabs
+  transport.on('MSG', (env) => {
+    if (env.sender === identity.did) return;
+    appendRecvBubble(env.body?.text ?? '[binary]', nowTime());
+    totalMessages++;
+    syncDetailPanel();
+  });
+
+  runtime = { identity, keyPair, clock, ledger, transport };
+
+  // Commit genesis entry (commit path — initial ledger anchor)
+  const genesis = await JBC.Ledger.buildNext(ledger, {
+    type: 'GENESIS', clock: clock.current(), actor: identity.did,
+    payload: { network:'JBC', version:'0.1', arch:'dual-path' },
+    privateKey: keyPair.privateKey, pubHex: keyPair.pubHex,
+  });
+  await ledger.append(genesis);
+  clock.tick();
+
+  // UI updates
+  document.getElementById('detailDid').textContent = identity.did;
+  setCommitBar('verified', `Identity ready · ${identity.did.slice(0,44)}…`);
+  document.getElementById('commitBadge').textContent = 'READY';
+  document.getElementById('commitBadge').className   = 'commit-badge verified';
+
+  setNetwork('online', `Sovereign Event Network · ${identity.did.slice(8,24)}…`, '1 node');
+  addLedgerEntry(genesis);
+  syncDetailPanel();
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function scrollBottom() {
+  const area = document.getElementById('messagesArea');
+  requestAnimationFrame(() => { area.scrollTop = area.scrollHeight; });
+}
+function nowTime() {
+  return new Date().toLocaleTimeString('en', { hour:'2-digit', minute:'2-digit' });
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderThreads();
+  scrollBottom();
+  initRuntime().catch(e => {
+    console.error('[JBC] Init failed:', e);
+    setNetwork('', 'Runtime error — see console');
+  });
+});
+</script>
+</body>
+</html>

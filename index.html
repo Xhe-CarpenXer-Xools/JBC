@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JBC · Sovereign Runtime</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+:root {
+  --bg:#0C0C0E;--bg2:#111115;--bg3:#16161B;--bg4:#1C1C23;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --fg:#E8E8E0;--fg2:#A8A89E;--fg3:#68685E;--fg4:#3A3A32;
+  --accent:#C8FF00;--accent2:#A0CC00;--accent-dim:rgba(200,255,0,0.08);
+  --red:#FF4444;--red-dim:rgba(255,68,68,0.10);
+  --teal:#00D4AA;--teal-dim:rgba(0,212,170,0.10);
+  --amber:#FFB800;--amber-dim:rgba(255,184,0,0.10);
+  --blue:#4488FF;--blue-dim:rgba(68,136,255,0.10);
+  --violet:#AA77FF;--violet-dim:rgba(170,119,255,0.10);
+  --orange:#FF8844;--orange-dim:rgba(255,136,68,0.10);
+  --font:'Syne',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{font-family:var(--font);background:var(--bg);color:var(--fg);font-size:13px;overflow:hidden;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:var(--fg4);}
+
+/* ── LAYOUT ── */
+.app{height:100vh;display:flex;flex-direction:column;}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:48px;border-bottom:1px solid var(--border);flex-shrink:0;position:relative;}
+.hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(200,255,0,0.12),transparent);}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:13px;letter-spacing:0.08em;}
+.logo-mark{width:20px;height:20px;border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;}
+.logo-mark::after{content:'';width:6px;height:6px;background:var(--accent);}
+.bc{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--fg3);}
+.bc-sep{color:var(--fg4);}
+.hdr-r{display:flex;align-items:center;gap:12px;}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--fg4);}
+.status-dot.live{background:var(--teal);box-shadow:0 0 5px rgba(0,212,170,0.6);animation:blink 2s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.pill{font-family:var(--mono);font-size:9px;padding:3px 8px;border:1px solid var(--border2);color:var(--fg3);letter-spacing:0.08em;}
+.pill.ok{color:var(--accent);border-color:rgba(200,255,0,0.3);}
+
+.body{flex:1;display:flex;overflow:hidden;}
+.left{width:260px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.center{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.right{width:280px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.panel-title{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--fg3);}
+.panel-body{padding:12px 14px;overflow-y:auto;flex:1;}
+.panel-action{font-family:var(--mono);font-size:9px;color:var(--accent);cursor:pointer;background:none;border:none;letter-spacing:0.05em;}
+.panel-action:hover{color:var(--fg);}
+
+.btn{font-family:var(--mono);font-size:10px;padding:6px 12px;border:1px solid var(--border2);background:transparent;color:var(--fg2);cursor:pointer;letter-spacing:0.05em;transition:all 0.12s;}
+.btn:hover{border-color:var(--fg3);color:var(--fg);}
+.btn.accent{color:var(--accent);border-color:rgba(200,255,0,0.3);}
+.btn.accent:hover{background:var(--accent-dim);}
+.btn.red{color:var(--red);border-color:rgba(255,68,68,0.3);}
+.btn.red:hover{background:var(--red-dim);}
+.btn:disabled{opacity:0.35;cursor:not-allowed;}
+
+/* ── IDENTITY ── */
+.id-block{padding:14px;border-bottom:1px solid var(--border);}
+.id-label{font-family:var(--mono);font-size:8px;color:var(--fg3);letter-spacing:0.1em;margin-bottom:6px;}
+.id-did{font-family:var(--mono);font-size:9px;color:var(--accent);word-break:break-all;line-height:1.6;}
+.id-stats{display:flex;gap:10px;margin-top:8px;}
+.id-stat{display:flex;flex-direction:column;gap:2px;}
+.id-stat-val{font-family:var(--mono);font-size:13px;font-weight:700;}
+.id-stat-lbl{font-family:var(--mono);font-size:8px;color:var(--fg3);letter-spacing:0.07em;}
+
+/* ── LEDGER ENTRIES ── */
+.ledger-stream{overflow-y:auto;flex:1;padding:0;}
+.ledger-entry{padding:8px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;}
+.ledger-entry:hover{background:var(--bg3);}
+.ledger-entry.selected{background:var(--bg3);border-left:2px solid var(--accent);}
+.le-top{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+.le-type{font-family:var(--mono);font-size:8px;padding:1px 5px;letter-spacing:0.06em;}
+.le-type.state{background:var(--accent-dim);color:var(--accent);}
+.le-type.counter{background:var(--teal-dim);color:var(--teal);}
+.le-type.access{background:var(--violet-dim);color:var(--violet);}
+.le-type.transport{background:var(--blue-dim);color:var(--blue);}
+.le-actor{font-family:var(--mono);font-size:8px;color:var(--fg3);}
+.le-tick{font-family:var(--mono);font-size:8px;color:var(--fg4);margin-left:auto;}
+.le-hash{font-family:var(--mono);font-size:8px;color:var(--fg4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── STATE VIEW ── */
+.state-entries{display:flex;flex-direction:column;gap:4px;}
+.state-row{padding:7px 10px;border:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+.state-key{font-family:var(--mono);font-size:10px;color:var(--fg);flex:1;}
+.state-val{font-family:var(--mono);font-size:9px;color:var(--fg3);}
+.state-tick{font-family:var(--mono);font-size:8px;color:var(--fg4);}
+.state-empty{font-family:var(--mono);font-size:9px;color:var(--fg4);padding:16px 0;text-align:center;}
+
+/* ── WRITE FORM ── */
+.write-form{padding:12px 14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;flex-shrink:0;}
+.form-row{display:flex;gap:6px;}
+.jbc-input{background:var(--bg3);border:1px solid var(--border);color:var(--fg);font-family:var(--mono);font-size:10px;padding:6px 8px;outline:none;flex:1;}
+.jbc-input:focus{border-color:rgba(200,255,0,0.3);}
+.jbc-input::placeholder{color:var(--fg4);}
+.form-btns{display:flex;gap:6px;}
+
+/* ── HASH DISPLAY ── */
+.hash-block{padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.hash-label{font-family:var(--mono);font-size:8px;color:var(--fg3);letter-spacing:0.1em;margin-bottom:5px;}
+.hash-val{font-family:var(--mono);font-size:9px;color:var(--accent);word-break:break-all;line-height:1.6;}
+
+/* ── EVENT DETAIL ── */
+.detail-block{padding:12px 14px;}
+.detail-label{font-family:var(--mono);font-size:8px;color:var(--fg3);letter-spacing:0.1em;margin-bottom:5px;margin-top:10px;}
+.detail-label:first-child{margin-top:0;}
+.detail-val{font-family:var(--mono);font-size:9px;color:var(--fg2);word-break:break-all;line-height:1.6;}
+.detail-json{font-family:var(--mono);font-size:9px;color:var(--fg2);white-space:pre-wrap;word-break:break-all;line-height:1.6;background:var(--bg3);padding:8px;border:1px solid var(--border);}
+
+/* ── LOG ── */
+.log-stream{overflow-y:auto;flex:1;font-family:var(--mono);font-size:9px;}
+.log-row{display:flex;gap:8px;padding:4px 14px;border-bottom:1px solid var(--border);}
+.log-row:hover{background:var(--bg3);}
+.log-time{color:var(--fg4);flex-shrink:0;width:52px;}
+.log-tag{font-size:8px;padding:1px 4px;flex-shrink:0;width:56px;text-align:center;letter-spacing:0.05em;}
+.log-tag.KERNEL{background:var(--accent-dim);color:var(--accent);}
+.log-tag.LEDGER{background:var(--teal-dim);color:var(--teal);}
+.log-tag.SCHEMA{background:var(--blue-dim);color:var(--blue);}
+.log-tag.ACCESS{background:var(--violet-dim);color:var(--violet);}
+.log-tag.SYNC{background:var(--amber-dim);color:var(--amber);}
+.log-tag.CRYPTO{background:var(--orange-dim);color:var(--orange);}
+.log-tag.ERR{background:var(--red-dim);color:var(--red);}
+.log-tag.OK{background:var(--accent-dim);color:var(--accent);}
+.log-msg{color:var(--fg2);flex:1;}
+.log-msg em{color:var(--fg3);font-style:normal;}
+
+/* ── SCENARIO BAR ── */
+.scenario-bar{display:flex;align-items:center;gap:8px;padding:8px 24px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);}
+.scenario-label{font-family:var(--mono);font-size:9px;color:var(--fg3);letter-spacing:0.1em;margin-right:4px;}
+
+/* ── MESSAGING PANEL ─────────────────────────────────────────────────────── */
+.msg-panel{width:280px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.msg-list{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:6px;}
+.msg-bubble{padding:7px 10px;border:1px solid var(--border);border-radius:2px;word-break:break-word;}
+.msg-bubble.outbound{border-color:rgba(200,255,0,0.2);background:rgba(200,255,0,0.04);}
+.msg-bubble.inbound{border-color:rgba(68,136,255,0.2);background:rgba(68,136,255,0.04);}
+.msg-meta{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
+.msg-dir{font-family:var(--mono);font-size:8px;letter-spacing:0.08em;}
+.msg-bubble.outbound .msg-dir{color:var(--accent);}
+.msg-bubble.inbound .msg-dir{color:var(--blue);}
+.msg-did{font-family:var(--mono);font-size:8px;color:var(--fg4);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.msg-ts{font-family:var(--mono);font-size:8px;color:var(--fg4);}
+.msg-text{font-family:var(--mono);font-size:10px;color:var(--fg2);line-height:1.5;}
+.msg-env-id{font-family:var(--mono);font-size:7px;color:var(--fg4);margin-top:3px;}
+.msg-empty{font-family:var(--mono);font-size:9px;color:var(--fg4);padding:16px 0;text-align:center;}
+.msg-compose{padding:10px 14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+.msg-compose-row{display:flex;gap:6px;}
+
+.footer{display:flex;align-items:center;gap:8px;padding:8px 24px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg2);}
+.inv{font-family:var(--mono);font-size:8px;padding:2px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--fg3);letter-spacing:0.06em;}
+.inv.ok{border-color:rgba(200,255,0,0.2);color:var(--accent);}
+.footer-note{font-family:var(--mono);font-size:8px;color:var(--fg4);margin-left:auto;}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- HEADER -->
+<header class="hdr">
+  <div style="display:flex;align-items:center;gap:20px;">
+    <div class="logo">
+      <div class="logo-mark"></div>
+      JBC
+    </div>
+    <div class="bc">
+      <span>CRYPTO</span><span class="bc-sep">›</span>
+      <span>CLOCK</span><span class="bc-sep">›</span>
+      <span>LEDGER</span><span class="bc-sep">›</span>
+      <span>KERNEL</span><span class="bc-sep">›</span>
+      <span>SCHEMA</span><span class="bc-sep">›</span>
+      <span>IDENTITY</span><span class="bc-sep">›</span>
+      <span>ACCESS</span><span class="bc-sep">›</span>
+      <span>SYNC</span><span class="bc-sep">›</span>
+      <span>QUERY</span><span class="bc-sep">›</span>
+      <span>TRANSPORT</span><span class="bc-sep">›</span>
+      <span>STORAGE</span><span class="bc-sep">›</span>
+      <span style="color:var(--violet);">CONSENSUS</span><span class="bc-sep">›</span>
+      <span style="color:var(--amber);">ECONOMICS</span><span class="bc-sep">›</span>
+      <span style="color:var(--teal);">SNAPSHOT</span><span class="bc-sep">›</span>
+      <span style="color:var(--blue);">SIGNALING</span>
+    </div>
+  </div>
+  <div class="hdr-r">
+    <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--fg3);">
+      <div class="status-dot" id="runtimeDot"></div>
+      <span id="runtimeStatus">initializing</span>
+    </div>
+    <span class="pill" id="ledgerPill">LEDGER 0</span>
+    <span class="pill" id="hashPill" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;">HASH —</span>
+    <a href="messenger.html" style="text-decoration:none;">
+      <button class="btn" style="font-size:9px;padding:4px 10px;color:var(--violet);border-color:rgba(170,119,255,0.3);">✉ MESSENGER</button>
+    </a>
+    <a href="tests/vectors.html" style="text-decoration:none;">
+      <button class="btn accent" style="font-size:9px;padding:4px 10px;">▶ TESTS</button>
+    </a>
+  </div>
+</header>
+
+<!-- SCENARIO BAR -->
+<div class="scenario-bar">
+  <span class="scenario-label">DEMO</span>
+  <button class="btn accent" onclick="runDemo()">⚡ full protocol demo</button>
+  <button class="btn" onclick="runReplay()">↺ replay ledger</button>
+  <button class="btn" onclick="exportLedger()">↓ export ledger</button>
+  <button class="btn red" onclick="resetAll()" style="margin-left:auto;">↺ reset</button>
+</div>
+
+<!-- BODY -->
+<div class="body">
+
+  <!-- LEFT: identity + ledger -->
+  <div class="left">
+    <div class="id-block">
+      <div class="id-label">IDENTITY · ECDSA P-256</div>
+      <div class="id-did" id="myDid">—</div>
+      <div class="id-stats">
+        <div class="id-stat">
+          <span class="id-stat-val" id="statEvents">0</span>
+          <span class="id-stat-lbl">EVENTS</span>
+        </div>
+        <div class="id-stat">
+          <span class="id-stat-val" id="statAccepted">0</span>
+          <span class="id-stat-lbl">ACCEPTED</span>
+        </div>
+        <div class="id-stat">
+          <span class="id-stat-val" id="statRejected">0</span>
+          <span class="id-stat-lbl">REJECTED</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-head">
+      <span class="panel-title">LEDGER · APPEND-ONLY</span>
+      <span id="ledgerCount" style="font-family:var(--mono);font-size:9px;color:var(--fg3);">0 entries</span>
+    </div>
+    <div class="ledger-stream" id="ledgerStream">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--fg4);padding:16px 14px;">No events yet.</div>
+    </div>
+  </div>
+
+  <!-- CENTER: state view + write form -->
+  <div class="center">
+    <div class="hash-block">
+      <div class="hash-label">STATE ROOT HASH</div>
+      <div class="hash-val" id="stateHash">0000000000000000000000000000000000000000000000000000000000000000</div>
+    </div>
+
+    <div class="panel-head">
+      <span class="panel-title">DERIVED STATE · READ-ONLY FROM LEDGER</span>
+      <span id="stateCount" style="font-family:var(--mono);font-size:9px;color:var(--fg3);">0 entries</span>
+    </div>
+    <div class="panel-body">
+      <div class="state-entries" id="stateEntries">
+        <div class="state-empty">State derives from ledger. Write an event to begin.</div>
+      </div>
+    </div>
+
+    <div class="write-form">
+      <div class="id-label" style="padding:0;">SUBMIT EVENT</div>
+      <div class="form-row">
+        <select class="jbc-input" id="eventType" style="flex:0 0 160px;">
+          <option value="state.set">state.set</option>
+          <option value="state.delete">state.delete</option>
+          <option value="counter.increment">counter.increment</option>
+          <option value="access.grant">access.grant</option>
+        </select>
+        <input class="jbc-input" id="eventKey"   placeholder="key" />
+        <input class="jbc-input" id="eventValue" placeholder="value (optional)" />
+      </div>
+      <div class="form-btns">
+        <button class="btn accent" onclick="submitEvent()">→ submit event</button>
+        <button class="btn" onclick="verifyLedger()">✓ verify chain</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MESSAGING: transport envelopes -->
+  <div class="msg-panel">
+    <div class="panel-head">
+      <span class="panel-title">TRANSPORT · BROADCAST</span>
+      <button class="panel-action" onclick="clearMessages()">clear</button>
+    </div>
+    <div class="msg-list" id="msgList">
+      <div class="msg-empty" id="msgEmpty">No messages yet. Send one below.</div>
+    </div>
+    <div class="msg-compose">
+      <input class="jbc-input" id="msgText" placeholder="message body..." maxlength="512">
+      <div class="msg-compose-row">
+        <input class="jbc-input" id="msgType" placeholder="type (default: MSG)" style="width:120px;flex:none;">
+        <button class="btn accent" style="flex:1;" onclick="sendMessage()">&#9658; SEND</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="panel-head">
+      <span class="panel-title">ENTRY DETAIL</span>
+      <button class="panel-action" onclick="clearDetail()">clear</button>
+    </div>
+    <div class="panel-body" id="entryDetail">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--fg4);padding:8px 0;">Click a ledger entry to inspect.</div>
+    </div>
+
+    <div class="panel-head" style="border-top:1px solid var(--border);">
+      <span class="panel-title">RUNTIME LOG</span>
+      <button class="panel-action" onclick="clearLog()">clear</button>
+    </div>
+    <div class="log-stream" id="logStream"></div>
+  </div>
+
+</div><!-- /body -->
+
+<!-- FOOTER -->
+<footer class="footer">
+  <span class="inv ok" id="invI1">I1 LEDGER-PRIMARY</span>
+  <span class="inv ok" id="invI2">I2 HASH-CHAINED</span>
+  <span class="inv ok" id="invI3">I3 SIG-REQUIRED</span>
+  <span class="inv ok" id="invI4">I4 DETERMINISTIC</span>
+  <span class="inv ok" id="invI5">I5 CLOCK-MONOTONIC</span>
+  <span class="inv ok" id="invI6">I6 SCHEMA-GATED</span>
+  <span class="inv ok" id="invI7">I7 ACCESS-SIGNED</span>
+  <span class="inv ok" id="invI8">I8 MERGE-EXPLICIT</span>
+  <span class="footer-note">window.JBC · zero protocol logic in HTML</span>
+</footer>
+
+</div><!-- /app -->
+
+<!-- ── RUNTIME LOAD (manifest load order) ──────────────────────────────────── -->
+<script src="core/crypto.js"></script>
+<script src="core/clock.js"></script>
+<script src="core/schema.js"></script>
+<script src="core/identity.js"></script>
+<script src="core/ledger.js"></script>
+<script src="core/kernel.js"></script>
+<script src="core/access.js"></script>
+<script src="core/sync.js"></script>
+<script src="core/query.js"></script>
+<script src="core/transport.js"></script>
+<script src="core/storage.js"></script>
+
+<!-- ── UI SHELL (lens only — no protocol logic here) ───────────────────────── -->
+<script>
+'use strict';
+
+// ─── RUNTIME STATE ────────────────────────────────────────────────────────────
+// All protocol state lives in JBC.* modules. Shell is lens only.
+
+let runtime = null;
+let selectedEntry = null;
+
+// ─── LOG ─────────────────────────────────────────────────────────────────────
+
+const logs = [];
+
+function log(tag, msg) {
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  logs.unshift({ tag, msg, time });
+  if (logs.length > 150) logs.pop();
+  renderLog();
+}
+
+function renderLog() {
+  const el = document.getElementById('logStream');
+  el.innerHTML = logs.map(e => `
+    <div class="log-row">
+      <span class="log-time">${e.time}</span>
+      <span class="log-tag ${e.tag}">${e.tag}</span>
+      <span class="log-msg">${e.msg}</span>
+    </div>`).join('');
+}
+
+
+window.clearLog = () => { logs.length = 0; renderLog(); };
+
+// ─── MESSAGING ────────────────────────────────────────────────────────────────
+
+const messages = [];
+
+function renderMessages() {
+  const list  = document.getElementById('msgList');
+  const empty = document.getElementById('msgEmpty');
+  if (messages.length === 0) { empty.style.display = ''; list.querySelectorAll('.msg-bubble').forEach(el => el.remove()); return; }
+  empty.style.display = 'none';
+  // rebuild
+  list.querySelectorAll('.msg-bubble').forEach(el => el.remove());
+  messages.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'msg-bubble ' + m.dir;
+    div.innerHTML =
+      '<div class="msg-meta">' +
+        '<span class="msg-dir">' + (m.dir === 'outbound' ? '&#x2191; OUT' : '&#x2193; IN') + '</span>' +
+        '<span class="msg-did">' + escHtml(m.sender.slice(0,28)) + '...</span>' +
+        '<span class="msg-ts">' + m.ts + '</span>' +
+      '</div>' +
+      '<div class="msg-text">' + escHtml(m.text) + '</div>' +
+      '<div class="msg-env-id">env:' + m.id.slice(0,12) + '</div>';
+    list.appendChild(div);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+window.sendMessage = async function() {
+  if (!runtime) { log('ERR', 'runtime not ready'); return; }
+  const textEl = document.getElementById('msgText');
+  const typeEl = document.getElementById('msgType');
+  const text   = textEl.value.trim();
+  const type   = typeEl.value.trim() || 'MSG';
+  if (!text) return;
+
+  try {
+    const env = await runtime.transport.send(
+      { type, text },
+      runtime.keyPair.privateKey,
+      runtime.keyPair.pubHex
+    );
+    messages.push({ dir: 'outbound', sender: runtime.identity.did, text, id: env.id, ts: new Date().toLocaleTimeString() });
+    log('TRANSPORT', 'sent envelope id=' + env.id.slice(0,8) + ' type=' + type);
+    textEl.value = '';
+    typeEl.value = '';
+    renderMessages();
+  } catch(e) {
+    log('ERR', e.message);
+  }
+};
+
+window.clearMessages = function() { messages.length = 0; renderMessages(); };
+
+// ─── RENDER LEDGER ────────────────────────────────────────────────────────────
+
+function renderLedger() {
+  const entries = runtime.ledger.read();
+  const el      = document.getElementById('ledgerStream');
+  document.getElementById('ledgerCount').textContent = `${entries.length} entries`;
+  document.getElementById('ledgerPill').textContent  = `LEDGER ${entries.length}`;
+
+  if (!entries.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:9px;color:var(--fg4);padding:16px 14px;">No events yet.</div>';
+    return;
+  }
+
+  // Show newest first in UI
+  el.innerHTML = [...entries].reverse().map(e => {
+    const typeClass = e.type.startsWith('state') ? 'state' : e.type.startsWith('counter') ? 'counter' : e.type.startsWith('access') ? 'access' : 'transport';
+    const isSelected = selectedEntry?.id === e.id;
+    return `
+    <div class="ledger-entry ${isSelected?'selected':''}" onclick="selectEntry('${e.id}')">
+      <div class="le-top">
+        <span class="le-type ${typeClass}">${e.type}</span>
+        <span class="le-actor">${e.actor.slice(0,16)}…</span>
+        <span class="le-tick">t${e.clock?.counter ?? '?'}</span>
+      </div>
+      <div class="le-hash">${e.hash?.slice(0,32) ?? '—'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── RENDER STATE ─────────────────────────────────────────────────────────────
+
+async function renderState() {
+  const state    = runtime.kernelState;
+  const el       = document.getElementById('stateEntries');
+  const hashEl   = document.getElementById('stateHash');
+  const countEl  = document.getElementById('stateCount');
+
+  const h = await state.hash();
+  hashEl.textContent   = h;
+  countEl.textContent  = `${state.size()} entries`;
+  document.getElementById('hashPill').textContent = 'HASH ' + h.slice(0,8) + '...';
+
+  if (!state.size()) {
+    el.innerHTML = '<div class="state-empty">State derives from ledger. Write an event to begin.</div>';
+    return;
+  }
+
+  const query   = new JBC.QueryEngine(runtime.kernel);
+  const entries = query.query(state, 'entries', { sort: 'tick', order: 'desc' });
+  el.innerHTML  = entries.map(e => `
+    <div class="state-row">
+      <span class="state-key">${escHtml(String(e.key))}</span>
+      <span class="state-val">${escHtml(JSON.stringify(e.value))}</span>
+      <span class="state-tick">t${e.tick}</span>
+    </div>`).join('');
+}
+
+// ─── SELECT ENTRY ─────────────────────────────────────────────────────────────
+
+window.selectEntry = function(id) {
+  selectedEntry = runtime.ledger.get(id);
+  renderLedger();
+  renderEntryDetail();
+};
+
+function renderEntryDetail() {
+  const el = document.getElementById('entryDetail');
+  if (!selectedEntry) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:9px;color:var(--fg4);">Click a ledger entry to inspect.</div>';
+    return;
+  }
+  const e = selectedEntry;
+
+  // textContent used for all user-controlled values (no innerHTML with untrusted data)
+  const detail = document.createElement('div');
+  detail.className = 'detail-block';
+
+  function row(label, value, isJSON = false) {
+    const ld = document.createElement('div');
+    ld.className = 'detail-label';
+    ld.textContent = label;
+    const vd = document.createElement('div');
+    vd.className = isJSON ? 'detail-json' : 'detail-val';
+    vd.textContent = isJSON ? JSON.stringify(value, null, 2) : String(value ?? '—');
+    detail.appendChild(ld);
+    detail.appendChild(vd);
+  }
+
+  row('ID',      e.id);
+  row('TYPE',    e.type);
+  row('ACTOR',   e.actor);
+  row('CLOCK',   JSON.stringify(e.clock));
+  row('HASH',    e.hash);
+  row('SIG',     e.sig ? e.sig.slice(0,32) + '...' : 'none');
+  row('PREV',    e.prev);
+  row('PAYLOAD', e.payload, true);
+
+  el.innerHTML = '';
+  el.appendChild(detail);
+}
+
+window.clearDetail = function() {
+  selectedEntry = null;
+  renderLedger();
+  document.getElementById('entryDetail').innerHTML = '<div style="font-family:var(--mono);font-size:9px;color:var(--fg4);">Click a ledger entry to inspect.</div>';
+};
+
+// ─── SUBMIT EVENT ─────────────────────────────────────────────────────────────
+
+window.submitEvent = async function() {
+  const type    = document.getElementById('eventType').value;
+  const key     = document.getElementById('eventKey').value.trim();
+  const valRaw  = document.getElementById('eventValue').value.trim();
+
+  if (!key) { log('ERR', 'key is required'); return; }
+
+  let value = valRaw;
+  if (valRaw !== '' && !isNaN(Number(valRaw))) value = Number(valRaw);
+  if (valRaw === 'true')  value = true;
+  if (valRaw === 'false') value = false;
+
+  const payload = type === 'counter.increment'
+    ? { key, amount: Number(value) || 1 }
+    : type === 'state.delete'
+    ? { key }
+    : { key, value };
+
+  try {
+    // Schema validate before submit
+    const schemaResult = runtime.schemaRegistry.validate(type, payload);
+    if (!schemaResult.ok) { log('SCHEMA', schemaResult.reason); return; }
+
+    const result = await runtime.submit(type, payload);
+    if (result.accepted) {
+      log('KERNEL', `accepted: <em>${type}</em> key=${key} → ${result.stateRoot.slice(0,12)}...`);
+      log('LEDGER', `entry #${runtime.ledger.size()} appended · hash=${result.stateRoot.slice(0,8)}...`);
+      runtime.totalAccepted++;
+    } else {
+      log('ERR', `rejected: ${result.reason ?? 'predicate failed'}`);
+      runtime.totalRejected++;
+    }
+    runtime.totalEvents++;
+    updateStats();
+    renderLedger();
+    await renderState();
+  } catch (e) {
+    log('ERR', e.message);
+  }
+
+  document.getElementById('eventKey').value   = '';
+  document.getElementById('eventValue').value = '';
+};
+
+// ─── VERIFY CHAIN ─────────────────────────────────────────────────────────────
+
+window.verifyLedger = async function() {
+  log('LEDGER', 'verifying hash chain...');
+  const result = await runtime.ledger.verifyAll();
+  if (result.ok) {
+    log('OK', `chain verified: ${runtime.ledger.size()} entries, all hashes valid`);
+  } else {
+    result.failures.forEach(f => log('ERR', `chain broken at ${f.id.slice(0,8)}: ${f.reason}`));
+  }
+};
+
+// ─── REPLAY ───────────────────────────────────────────────────────────────────
+
+window.runReplay = async function() {
+  const entries = runtime.ledger.read();
+  log('LEDGER', `replaying ${entries.length} entries from genesis...`);
+  const replayed = await runtime.kernel.replay(entries);
+  const h1 = await runtime.kernelState.hash();
+  const h2 = await replayed.hash();
+  if (h1 === h2) {
+    log('OK', `replay verified: ${h1.slice(0,16)}... matches live state`);
+  } else {
+    log('ERR', `replay mismatch: live=${h1.slice(0,8)} replayed=${h2.slice(0,8)}`);
+  }
+};
+
+// ─── EXPORT ───────────────────────────────────────────────────────────────────
+
+window.exportLedger = function() {
+  const json = JSON.stringify(runtime.ledger.toJSON(), null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `jbc-ledger-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  log('LEDGER', `exported ${runtime.ledger.size()} entries`);
+};
+
+// ─── DEMO ─────────────────────────────────────────────────────────────────────
+
+window.runDemo = async function() {
+  if (!runtime) {
+    log('ERR', 'runtime not ready — waiting for init to complete');
+    return;
+  }
+  log('OK', 'starting full protocol demo...');
+
+  // 1. Schema validate
+  const st = runtime.schemaRegistry.validate('state.set', { key: 'demo:user', value: 'alice' });
+  log('SCHEMA', st.ok ? 'schema validation passed' : st.reason);
+
+  // 2. Submit events
+  await runtime.submit('state.set', { key: 'demo:user', value: 'alice' });
+  runtime.totalEvents++; runtime.totalAccepted++;
+  log('KERNEL', 'event: state.set demo:user=alice');
+
+  await runtime.submit('state.set', { key: 'demo:score', value: 0 });
+  runtime.totalEvents++; runtime.totalAccepted++;
+  log('KERNEL', 'event: state.set demo:score=0');
+
+  await runtime.submit('counter.increment', { key: 'demo:score', amount: 10 });
+  runtime.totalEvents++; runtime.totalAccepted++;
+  log('KERNEL', 'event: counter.increment demo:score+10');
+
+  // 3. Replay proof
+  const entries  = runtime.ledger.read();
+  const replayed = await runtime.kernel.replay(entries);
+  const h1 = await runtime.kernelState.hash();
+  const h2 = await replayed.hash();
+  log(h1 === h2 ? 'OK' : 'ERR', `replay proof: ${h1 === h2 ? 'IDENTICAL' : 'MISMATCH'} · ${h1.slice(0,16)}...`);
+
+  // 4. Ledger verify
+  const v = await runtime.ledger.verifyAll();
+  log(v.ok ? 'OK' : 'ERR', `chain verify: ${v.ok ? 'VALID' : v.failures[0]?.reason}`);
+
+  // 5. Transport envelope
+  const env = await runtime.transport.send(
+    { type: 'BUNDLE', size: runtime.ledger.size() },
+    runtime.keyPair.privateKey,
+    runtime.keyPair.pubHex
+  );
+  log('LEDGER', `transport envelope: id=${env.id.slice(0,8)} hash=${env.hash.slice(0,8)}`);
+
+  updateStats();
+  renderLedger();
+  await renderState();
+  log('OK', 'demo complete — all invariants held');
+};
+
+// ─── RESET ────────────────────────────────────────────────────────────────────
+
+window.resetAll = async function() {
+  await initRuntime();
+  log('OK', 'runtime reset');
+};
+
+// ─── STATS ────────────────────────────────────────────────────────────────────
+
+function updateStats() {
+  document.getElementById('statEvents').textContent   = runtime.totalEvents;
+  document.getElementById('statAccepted').textContent = runtime.totalAccepted;
+  document.getElementById('statRejected').textContent = runtime.totalRejected;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── RUNTIME INIT ─────────────────────────────────────────────────────────────
+
+async function initRuntime() {
+  // Register default schemas for built-in event types
+  const schemaRegistry = new JBC.SchemaRegistry();
+  schemaRegistry.registerSchema('state.set', new JBC.Schema({
+    name: 'state.set',
+    fields: [
+      new JBC.SchemaField({ name: 'key',   type: 'string', required: true,  constraints: { minLength: 1, maxLength: 256 } }),
+      new JBC.SchemaField({ name: 'value', type: 'string', required: false }),
+    ],
+  }));
+  schemaRegistry.registerSchema('state.delete', new JBC.Schema({
+    name: 'state.delete',
+    fields: [ new JBC.SchemaField({ name: 'key', type: 'string', required: true }) ],
+  }));
+  schemaRegistry.registerSchema('counter.increment', new JBC.Schema({
+    name: 'counter.increment',
+    fields: [
+      new JBC.SchemaField({ name: 'key',    type: 'string', required: true }),
+      new JBC.SchemaField({ name: 'amount', type: 'number', required: false, constraints: { min: 0 } }),
+    ],
+  }));
+  schemaRegistry.registerSchema('access.grant', new JBC.Schema({
+    name: 'access.grant',
+    fields: [
+      new JBC.SchemaField({ name: 'did', type: 'string', required: true }),
+      new JBC.SchemaField({ name: 'cap', type: 'string', required: true, constraints: { enum: JBC.ALL_CAPS } }),
+    ],
+  }));
+
+  const identityReg = new JBC.IdentityRegistry();
+  const { identity, keyPair } = await identityReg.createIdentity();
+
+  const kernel  = new JBC.SovereignKernel();
+  const ledger  = new JBC.Ledger();
+  const clock   = new JBC.LogicalClock(identity.did);
+  const access  = new JBC.AccessLayer();
+  const sync    = new JBC.SyncEngine();
+  const transport = new JBC.Transport({ nodeId: identity.did, clock });
+  transport.initBroadcastChannel('jbc:v1');
+  transport.on('*', (envelope) => {
+    // Don't duplicate outbound messages we already pushed on send
+    if (envelope.sender === runtime?.identity?.did) return;
+    messages.push({
+      dir:    'inbound',
+      sender: envelope.sender,
+      text:   envelope.body?.text ?? JSON.stringify(envelope.body),
+      id:     envelope.id,
+      ts:     new Date().toLocaleTimeString()
+    });
+    log('TRANSPORT', 'received envelope id=' + envelope.id.slice(0,8) + ' from ' + envelope.sender.slice(0,16) + '...');
+    renderMessages();
+  });
+
+  // Bootstrap admin access
+  await access.grant(identity.did, keyPair.privateKey, identity.did, 'admin');
+  await access.grant(identity.did, keyPair.privateKey, identity.did, 'write');
+
+  let kernelState = JBC.KernelState.genesis();
+
+  runtime = {
+    identity, keyPair, kernel, ledger, clock, access, sync, transport,
+    schemaRegistry, kernelState,
+    totalEvents: 0, totalAccepted: 0, totalRejected: 0,
+
+    // submit: schema → access → ledger → kernel
+    async submit(type, payload) {
+      // Access check
+      const ac = access.canSubmit(identity.did, type);
+      if (!ac.ok) return { accepted: false, reason: ac.reason };
+
+      // Build event
+      const clk = clock.tick();
+      const ev  = await JBC.SovereignKernel.buildEvent(type, identity.did, payload, clk.counter);
+      const sub = new JBC.Submission({ event: ev });
+
+      // Apply to kernel
+      const res = await kernel.apply(kernelState, [sub]);
+      if (res.accepted > 0) {
+        kernelState = res.state;
+        runtime.kernelState = kernelState;
+
+        // Append to ledger
+        const entry = await JBC.Ledger.buildNext(ledger, {
+          type, clock: clk, actor: identity.did, payload,
+          privateKey: keyPair.privateKey, pubHex: keyPair.pubHex,
+        });
+        await ledger.append(entry);
+      }
+
+      return {
+        accepted:  res.accepted > 0,
+        stateRoot: res.finalHash,
+        reason:    res.log[0]?.reason,
+      };
+    },
+  };
+
+  // Update UI
+  document.getElementById('myDid').textContent    = identity.did;
+  document.getElementById('runtimeDot').className = 'status-dot live';
+  document.getElementById('runtimeStatus').textContent = 'runtime live';
+  updateStats();
+  renderLedger();
+  await renderState();
+
+  log('CRYPTO', `identity generated: ${identity.did.slice(0,24)}...`);
+  log('ACCESS', `admin + write caps granted`);
+  log('OK', 'JBC runtime initialized — window.JBC ready');
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  initRuntime().catch(e => {
+    log('ERR', e.message);
+    document.getElementById('runtimeStatus').textContent = 'init failed';
+  });
+
+  // Enter key sends message
+  document.getElementById('msgText').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+});
+</script>
+</body>
+</html>

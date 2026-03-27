@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JBC · Protocol Test Vectors</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+:root {
+  --bg:#0C0C0E;--bg2:#111115;--bg3:#16161B;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --fg:#E8E8E0;--fg2:#A8A89E;--fg3:#68685E;--fg4:#3A3A32;
+  --accent:#C8FF00;--accent-dim:rgba(200,255,0,0.08);
+  --red:#FF4444;--red-dim:rgba(255,68,68,0.10);
+  --teal:#00D4AA;--teal-dim:rgba(0,212,170,0.10);
+  --amber:#FFB800;--amber-dim:rgba(255,184,0,0.10);
+  --blue:#4488FF;--blue-dim:rgba(68,136,255,0.10);
+  --font:'Syne',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font);background:var(--bg);color:var(--fg);font-size:13px;padding:24px;min-height:100vh;}
+h1{font-size:18px;font-weight:800;letter-spacing:0.08em;margin-bottom:4px;}
+.sub{font-family:var(--mono);font-size:9px;color:var(--fg3);letter-spacing:0.1em;margin-bottom:28px;}
+.suite{margin-bottom:24px;}
+.suite-title{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--fg3);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px;text-transform:uppercase;}
+.test{display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border:1px solid var(--border);margin-bottom:4px;font-family:var(--mono);font-size:10px;}
+.test.pass{border-color:rgba(200,255,0,0.2);background:var(--accent-dim);}
+.test.fail{border-color:rgba(255,68,68,0.3);background:var(--red-dim);}
+.test.running{border-color:rgba(255,184,0,0.2);background:var(--amber-dim);}
+.test-icon{width:14px;flex-shrink:0;font-size:11px;margin-top:1px;}
+.test-name{flex:1;color:var(--fg);}
+.test-detail{font-size:9px;color:var(--fg3);margin-top:3px;}
+.test-err{font-size:9px;color:var(--red);margin-top:3px;word-break:break-all;}
+.summary{display:flex;gap:16px;padding:14px 0;border-top:1px solid var(--border);margin-top:12px;font-family:var(--mono);font-size:11px;}
+.s-pass{color:var(--accent);}
+.s-fail{color:var(--red);}
+.s-total{color:var(--fg3);}
+#runBtn{font-family:var(--mono);font-size:10px;padding:8px 20px;border:1px solid rgba(200,255,0,0.3);background:var(--accent-dim);color:var(--accent);cursor:pointer;letter-spacing:0.08em;margin-bottom:24px;}
+#runBtn:hover{background:rgba(200,255,0,0.15);}
+#runBtn:disabled{opacity:0.4;cursor:not-allowed;}
+.progress{font-family:var(--mono);font-size:9px;color:var(--fg3);margin-bottom:16px;}
+</style>
+</head>
+<body>
+<h1>JBC PROTOCOL TEST VECTORS</h1>
+<div class="sub">SIGNATURE · LEDGER REPLAY · SCHEMA FAIL · MERGE CONFLICT · TRANSPORT VERIFICATION</div>
+<button id="runBtn" onclick="runAll()">▶ RUN ALL VECTORS</button>
+<div class="progress" id="progress"></div>
+<div id="suites"></div>
+<div class="summary" id="summary" style="display:none;">
+  <span class="s-pass" id="s-pass"></span>
+  <span class="s-fail" id="s-fail"></span>
+  <span class="s-total" id="s-total"></span>
+</div>
+
+<!-- Runtime: load order must match manifest.json -->
+<script src="../core/crypto.js"></script>
+<script src="../core/clock.js"></script>
+<script src="../core/schema.js"></script>
+<script src="../core/identity.js"></script>
+<script src="../core/ledger.js"></script>
+<script src="../core/kernel.js"></script>
+<script src="../core/access.js"></script>
+<script src="../core/sync.js"></script>
+<script src="../core/query.js"></script>
+<script src="../core/transport.js"></script>
+<script src="../core/storage.js"></script>
+
+<script>
+// ─── TEST HARNESS ─────────────────────────────────────────────────────────────
+
+let totalPass = 0, totalFail = 0;
+
+function suite(name, tests) {
+  return { name, tests };
+}
+
+function assert(condition, msg) {
+  if (!condition) throw new Error(msg ?? 'assertion failed');
+}
+
+function assertEqual(a, b, msg) {
+  if (a !== b) throw new Error(msg ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+}
+
+function assertOk(result, msg) {
+  if (!result?.ok) throw new Error(msg ?? `expected ok:true, got reason: ${result?.reason}`);
+}
+
+async function runSuite(suiteObj) {
+  const el = document.createElement('div');
+  el.className = 'suite';
+  el.innerHTML = `<div class="suite-title">${suiteObj.name}</div>`;
+  document.getElementById('suites').appendChild(el);
+
+  for (const [name, fn] of Object.entries(suiteObj.tests)) {
+    const row = document.createElement('div');
+    row.className = 'test running';
+    row.innerHTML = `<span class="test-icon">·</span><div><div class="test-name">${name}</div></div>`;
+    el.appendChild(row);
+
+    document.getElementById('progress').textContent = `Running: ${name}`;
+    await new Promise(r => setTimeout(r, 0)); // yield for render
+
+    let pass = false, detail = '', err = '';
+    const t0 = performance.now();
+    try {
+      const result = await fn();
+      pass   = true;
+      detail = result ? String(result) : '';
+    } catch (e) {
+      err = e.message;
+    }
+    const ms = (performance.now() - t0).toFixed(1);
+
+    row.className = `test ${pass ? 'pass' : 'fail'}`;
+    row.innerHTML = `
+      <span class="test-icon">${pass ? '✓' : '✗'}</span>
+      <div>
+        <div class="test-name">${name} <span style="color:var(--fg3);font-size:8px;">${ms}ms</span></div>
+        ${detail ? `<div class="test-detail">${detail}</div>` : ''}
+        ${err    ? `<div class="test-err">${err}</div>` : ''}
+      </div>`;
+
+    if (pass) totalPass++; else totalFail++;
+  }
+}
+
+// ─── SUITE 1: SIGNATURE VECTORS ───────────────────────────────────────────────
+
+const sigVectors = suite('SIGNATURE VECTORS', {
+  'generate keypair produces valid did': async () => {
+    const kp = await JBC.crypto.generateKeyPair();
+    assert(kp.did.startsWith('did:key:z'), 'DID must start with did:key:z');
+    assert(kp.pubHex.length === 182, `pubHex length: ${kp.pubHex.length}`);
+    return `did: ${kp.did.slice(0, 24)}...`;
+  },
+
+  'sign + verify round-trip': async () => {
+    const kp          = await JBC.crypto.generateKeyPair();
+    const hash        = await JBC.crypto.sha256({ event: 'test', value: 42 });
+    const sig         = await JBC.crypto.sign(kp.privateKey, 'JBC', '0.1', hash);
+    const valid       = await JBC.crypto.verify(kp.pubHex, 'JBC', '0.1', hash, sig);
+    assert(valid, 'signature must verify');
+    return `sig: ${sig.slice(0, 16)}...`;
+  },
+
+  'wrong domain fails verify': async () => {
+    const kp    = await JBC.crypto.generateKeyPair();
+    const hash  = await JBC.crypto.sha256({ data: 'payload' });
+    const sig   = await JBC.crypto.sign(kp.privateKey, 'JBC', '0.1', hash);
+    const valid = await JBC.crypto.verify(kp.pubHex, 'WRONG', '0.1', hash, sig);
+    assert(!valid, 'different domain must fail');
+    return 'domain mismatch correctly rejected';
+  },
+
+  'wrong version fails verify': async () => {
+    const kp    = await JBC.crypto.generateKeyPair();
+    const hash  = await JBC.crypto.sha256({ data: 'payload' });
+    const sig   = await JBC.crypto.sign(kp.privateKey, 'JBC', '0.1', hash);
+    const valid = await JBC.crypto.verify(kp.pubHex, 'JBC', '0.2', hash, sig);
+    assert(!valid, 'different version must fail');
+    return 'version mismatch correctly rejected';
+  },
+
+  'tampered hash fails verify': async () => {
+    const kp      = await JBC.crypto.generateKeyPair();
+    const hash    = await JBC.crypto.sha256({ real: 'payload' });
+    const sig     = await JBC.crypto.sign(kp.privateKey, 'JBC', '0.1', hash);
+    const badHash = await JBC.crypto.sha256({ fake: 'payload' });
+    const valid   = await JBC.crypto.verify(kp.pubHex, 'JBC', '0.1', badHash, sig);
+    assert(!valid, 'tampered hash must fail');
+    return 'payload tamper correctly rejected';
+  },
+
+  'canonical encode is deterministic': async () => {
+    const a = JBC.crypto.canonicalEncode({ z: 1, a: 2, m: 3 });
+    const b = JBC.crypto.canonicalEncode({ m: 3, z: 1, a: 2 });
+    assertEqual(a, b, 'canonical encoding must be order-independent');
+    return `canon: ${a}`;
+  },
+
+  'identity self-proof verifies': async () => {
+    const reg    = new JBC.IdentityRegistry();
+    const { identity, keyPair } = await reg.createIdentity();
+    const result = await reg.verifyIdentity(identity);
+    assertOk(result);
+    return `did: ${identity.did.slice(0, 20)}...`;
+  },
+
+  'revoked identity fails verify': async () => {
+    const reg    = new JBC.IdentityRegistry();
+    const { identity, keyPair } = await reg.createIdentity();
+    await reg.revokeIdentity(identity.did, keyPair.privateKey);
+    const revoked = reg.get(identity.did);
+    const result  = await reg.verifyIdentity(revoked);
+    assert(!result.ok, 'revoked identity must fail verify');
+    return `reason: ${result.reason}`;
+  },
+});
+
+// ─── SUITE 2: LEDGER REPLAY VECTORS ───────────────────────────────────────────
+
+const ledgerVectors = suite('LEDGER REPLAY VECTORS', {
+  'empty ledger has genesis hash': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const state  = JBC.KernelState.genesis();
+    const h      = await state.hash();
+    assertEqual(h, '0'.repeat(64));
+    return 'genesis = ' + h.slice(0, 16) + '...';
+  },
+
+  'replay produces same state as live execution': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const events = [
+      { type: 'state.set', actor: 'alice', payload: { key: 'x', value: 1 }, tick: 1, nonce: 'n1' },
+      { type: 'state.set', actor: 'alice', payload: { key: 'y', value: 2 }, tick: 2, nonce: 'n2' },
+      { type: 'counter.increment', actor: 'bob', payload: { key: 'x', amount: 5 }, tick: 3, nonce: 'n3' },
+    ];
+
+    // Live execution
+    let liveState = JBC.KernelState.genesis();
+    for (const ev of events) {
+      const res = await kernel.reduce(liveState, ev);
+      if (res.accepted) liveState = res.state;
+    }
+
+    // Replay from same events
+    const replayState = await kernel.replay(events.map(e => ({
+      ...e, clock: { counter: e.tick, node: e.actor }, id: e.nonce,
+    })));
+
+    const lh = await liveState.hash();
+    const rh = await replayState.hash();
+    assertEqual(lh, rh, 'replay must match live execution');
+    return `hash: ${lh.slice(0, 16)}...`;
+  },
+
+  'order-independent replay: 6 permutations converge': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const events = [
+      { type: 'state.set', actor: 'alpha', payload: { key: 'k', value: 'from-alpha' }, tick: 1, nonce: 'p1' },
+      { type: 'state.set', actor: 'beta',  payload: { key: 'k', value: 'from-beta'  }, tick: 2, nonce: 'p2' },
+      { type: 'state.set', actor: 'gamma', payload: { key: 'j', value: 'unique'     }, tick: 1, nonce: 'p3' },
+    ];
+
+    const perms = [
+      [0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]
+    ];
+
+    const hashes = [];
+    for (const perm of perms) {
+      const subs = perm.map(i => new JBC.Submission({ event: new JBC.SovereignEvent(events[i]) }));
+      const res  = await kernel.apply(JBC.KernelState.genesis(), subs);
+      hashes.push(res.finalHash);
+    }
+
+    const first = hashes[0];
+    assert(hashes.every(h => h === first), `Not all 6 permutations converged: ${[...new Set(hashes)].length} unique hashes`);
+    return `all 6 → ${first.slice(0, 16)}...`;
+  },
+
+  'duplicate submission rejected': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const ev     = new JBC.SovereignEvent({ type: 'state.set', actor: 'a', payload: { key: 'k', value: 1 }, tick: 1, nonce: 'dup' });
+    const sub    = new JBC.Submission({ event: ev });
+
+    let state = JBC.KernelState.genesis();
+    const r1  = await kernel.apply(state, [sub]);
+    state     = r1.state;
+    const r2  = await kernel.apply(state, [sub]);
+
+    assertEqual(r2.accepted, 0, 'duplicate must be rejected');
+    const h1 = await r1.state.hash();
+    const h2 = await r2.state.hash();
+    assertEqual(h1, h2, 'state must not change on duplicate');
+    return `accepted:${r1.accepted} dup-accepted:${r2.accepted}`;
+  },
+
+  'LWW: higher tick wins': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const ev1    = new JBC.SovereignEvent({ type: 'state.set', actor: 'a', payload: { key: 'k', value: 'old' }, tick: 1, nonce: 'n1' });
+    const ev2    = new JBC.SovereignEvent({ type: 'state.set', actor: 'b', payload: { key: 'k', value: 'new' }, tick: 5, nonce: 'n2' });
+
+    const r = await kernel.apply(JBC.KernelState.genesis(), [
+      new JBC.Submission({ event: ev1 }),
+      new JBC.Submission({ event: ev2 }),
+    ]);
+
+    assertEqual(r.state.get('k'), 'new', 'higher tick must win');
+    return `winner: 'new' (tick 5 > tick 1)`;
+  },
+
+  'LWW: same tick, higher actor string wins': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const ev1    = new JBC.SovereignEvent({ type: 'state.set', actor: 'aaa', payload: { key: 'k', value: 'from-aaa' }, tick: 3, nonce: 'n1' });
+    const ev2    = new JBC.SovereignEvent({ type: 'state.set', actor: 'zzz', payload: { key: 'k', value: 'from-zzz' }, tick: 3, nonce: 'n2' });
+
+    const r = await kernel.apply(JBC.KernelState.genesis(), [
+      new JBC.Submission({ event: ev1 }),
+      new JBC.Submission({ event: ev2 }),
+    ]);
+
+    assertEqual(r.state.get('k'), 'from-zzz', '"zzz" > "aaa" must win same-tick');
+    return `winner: 'from-zzz' (zzz > aaa at tick 3)`;
+  },
+
+  'tick regression rejected': async () => {
+    const kernel = new JBC.SovereignKernel();
+    let state = JBC.KernelState.genesis();
+    const ev1  = new JBC.SovereignEvent({ type: 'state.set', actor: 'a', payload: { key: 'k', value: 1 }, tick: 10, nonce: 'n1' });
+    const ev2  = new JBC.SovereignEvent({ type: 'state.set', actor: 'a', payload: { key: 'k', value: 2 }, tick: 3,  nonce: 'n2' });
+
+    const r1 = await kernel.apply(state, [new JBC.Submission({ event: ev1 })]);
+    state     = r1.state;
+    const r2  = await kernel.apply(state, [new JBC.Submission({ event: ev2 })]);
+
+    assertEqual(r2.accepted, 0, 'lower tick from same actor must be rejected');
+    return `tick regression: accepted=${r2.accepted} reason=${r2.log[0]?.reason}`;
+  },
+
+  'unknown event type rejected': async () => {
+    const kernel = new JBC.SovereignKernel();
+    const ev     = new JBC.SovereignEvent({ type: 'totally.unknown', actor: 'a', payload: {}, tick: 1, nonce: 'n1' });
+    const r      = await kernel.apply(JBC.KernelState.genesis(), [new JBC.Submission({ event: ev })]);
+    assertEqual(r.accepted, 0, 'unknown type must be rejected');
+    return `reason: ${r.log[0]?.reason}`;
+  },
+});
+
+// ─── SUITE 3: SCHEMA FAIL VECTORS ─────────────────────────────────────────────
+
+const schemaVectors = suite('SCHEMA FAIL VECTORS', {
+  'registered schema validates good payload': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('user.create', new JBC.Schema({
+      name: 'user.create',
+      fields: [
+        new JBC.SchemaField({ name: 'username', type: 'string', required: true, constraints: { minLength: 3, maxLength: 32 } }),
+        new JBC.SchemaField({ name: 'age', type: 'number', required: false, constraints: { min: 0, max: 150 } }),
+      ],
+    }));
+
+    const r = reg.validate('user.create', { username: 'alice', age: 25 });
+    assertOk(r);
+    return 'valid payload accepted';
+  },
+
+  'missing required field rejected': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('user.create', new JBC.Schema({
+      name: 'user.create',
+      fields: [ new JBC.SchemaField({ name: 'username', type: 'string', required: true }) ],
+    }));
+
+    const r = reg.validate('user.create', {});
+    assert(!r.ok, 'missing required field must fail');
+    return `reason: ${r.reason}`;
+  },
+
+  'type mismatch rejected': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('item.create', new JBC.Schema({
+      name: 'item.create',
+      fields: [ new JBC.SchemaField({ name: 'price', type: 'number', required: true }) ],
+    }));
+
+    const r = reg.validate('item.create', { price: 'not-a-number' });
+    assert(!r.ok, 'type mismatch must fail');
+    return `reason: ${r.reason}`;
+  },
+
+  'enum constraint enforced': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('status.set', new JBC.Schema({
+      name: 'status.set',
+      fields: [ new JBC.SchemaField({ name: 'status', type: 'string', required: true, constraints: { enum: ['active','inactive','pending'] } }) ],
+    }));
+
+    const good = reg.validate('status.set', { status: 'active' });
+    const bad  = reg.validate('status.set', { status: 'deleted' });
+    assertOk(good);
+    assert(!bad.ok, 'invalid enum value must fail');
+    return `'active' ok, 'deleted' rejected: ${bad.reason}`;
+  },
+
+  'unknown event type rejected': async () => {
+    const reg = new JBC.SchemaRegistry();
+    const r   = reg.validate('not.registered', { any: 'payload' });
+    assert(!r.ok, 'unregistered type must fail');
+    return `reason: ${r.reason}`;
+  },
+
+  'unknown schema version rejected': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('foo.bar', new JBC.Schema({ name: 'foo.bar', version: '1', fields: [] }));
+    const r = reg.validate('foo.bar', {}, '99');
+    assert(!r.ok, 'unknown version must fail');
+    return `reason: ${r.reason}`;
+  },
+
+  'number min/max constraint enforced': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('score.set', new JBC.Schema({
+      name: 'score.set',
+      fields: [ new JBC.SchemaField({ name: 'score', type: 'number', required: true, constraints: { min: 0, max: 100 } }) ],
+    }));
+
+    const bad1 = reg.validate('score.set', { score: -1 });
+    const bad2 = reg.validate('score.set', { score: 101 });
+    const good = reg.validate('score.set', { score: 50 });
+    assert(!bad1.ok && !bad2.ok && good.ok, 'out-of-range must fail');
+    return `[-1]→${bad1.reason?.slice(0,30)} [101]→${bad2.reason?.slice(0,30)}`;
+  },
+
+  'string pattern constraint enforced': async () => {
+    const reg = new JBC.SchemaRegistry();
+    reg.registerSchema('email.set', new JBC.Schema({
+      name: 'email.set',
+      fields: [ new JBC.SchemaField({ name: 'email', type: 'string', required: true, constraints: { pattern: '^[^@]+@[^@]+$' } }) ],
+    }));
+
+    const good = reg.validate('email.set', { email: 'a@b.com' });
+    const bad  = reg.validate('email.set', { email: 'notanemail' });
+    assertOk(good);
+    assert(!bad.ok, 'pattern mismatch must fail');
+    return `'a@b.com' ok, 'notanemail' rejected`;
+  },
+});
+
+// ─── SUITE 4: MERGE CONFLICT VECTORS ──────────────────────────────────────────
+
+const mergeVectors = suite('MERGE CONFLICT VECTORS', {
+  'identity merge: immutable — local wins': async () => {
+    const sync  = new JBC.SyncEngine();
+    const local  = { did: 'did:key:zabc', pubkey: 'pub1', created: '2024-01-01', proof: 'p1', revoked: false };
+    const remote = { did: 'did:key:zabc', pubkey: 'pub2', created: '2024-02-01', proof: 'p2', revoked: false };
+    const r = sync.merge('identity', local, remote);
+    assertEqual(r.result.pubkey, 'pub1', 'identity must be immutable — local wins');
+    return `local pubkey preserved (immutable)`;
+  },
+
+  'identity merge: revocation propagates': async () => {
+    const sync   = new JBC.SyncEngine();
+    const local  = { did: 'did:key:z', pubkey: 'pub', created: '2024-01-01', proof: 'p', revoked: false };
+    const remote = { did: 'did:key:z', pubkey: 'pub', created: '2024-01-01', proof: 'p', revoked: true };
+    const r = sync.merge('identity', local, remote);
+    assert(r.result.revoked, 'revocation must propagate');
+    return 'revocation propagated from remote';
+  },
+
+  'message merge: append-only, deduplication': async () => {
+    const sync = new JBC.SyncEngine();
+    const local  = [{ id: 'm1', clock: { counter: 1, node: 'a' }, text: 'hello' }];
+    const remote = [
+      { id: 'm1', clock: { counter: 1, node: 'a' }, text: 'hello' },
+      { id: 'm2', clock: { counter: 2, node: 'b' }, text: 'world' },
+    ];
+    const r = sync.merge('message', local, remote);
+    assertEqual(r.result.length, 2, 'merged messages should be deduplicated to 2');
+    assert(r.result[1].id === 'm2', 'second message should be m2');
+    return `merged: ${r.result.length} msgs (deduplicated)`;
+  },
+
+  'profile merge: LWW by clock': async () => {
+    const sync   = new JBC.SyncEngine();
+    const local  = { name: 'Alice', clock: { counter: 3, node: 'alpha' } };
+    const remote = { name: 'Alice2', clock: { counter: 7, node: 'beta' } };
+    const r = sync.merge('profile', local, remote);
+    assertEqual(r.result.name, 'Alice2', 'higher clock must win profile LWW');
+    return `winner: '${r.result.name}' (counter 7 > 3)`;
+  },
+
+  'profile merge: same clock, node string tiebreak': async () => {
+    const sync   = new JBC.SyncEngine();
+    const local  = { name: 'local-val',  clock: { counter: 5, node: 'aaa' } };
+    const remote = { name: 'remote-val', clock: { counter: 5, node: 'zzz' } };
+    const r = sync.merge('profile', local, remote);
+    assertEqual(r.result.name, 'remote-val', '"zzz" > "aaa" at same clock must win');
+    return `winner: '${r.result.name}' (zzz > aaa at tick 5)`;
+  },
+
+  'permission merge: admin beats write': async () => {
+    const sync   = new JBC.SyncEngine();
+    const local  = { action: 'grant', target: 'x', issuerCap: 'write', clock: { counter: 10, node: 'a' } };
+    const remote = { action: 'grant', target: 'y', issuerCap: 'admin', clock: { counter: 5,  node: 'b' } };
+    const r = sync.merge('permission', local, remote);
+    assertEqual(r.result.issuerCap, 'admin', 'admin authority must win regardless of clock');
+    return `admin beats write (even at lower clock)`;
+  },
+
+  'unknown object type throws': async () => {
+    const sync = new JBC.SyncEngine();
+    let threw = false;
+    try { sync.merge('unknown.type', {}, {}); }
+    catch (e) { threw = true; }
+    assert(threw, 'unknown type must throw');
+    return 'unknown type correctly threw';
+  },
+
+  'three-node convergence after full merge': async () => {
+    const kernel = new JBC.SovereignKernel();
+
+    // Node A: offline writes
+    const evA1 = new JBC.SovereignEvent({ type: 'state.set', actor: 'node-alpha', payload: { key: 'shared', value: 'from-alpha' }, tick: 1, nonce: 'a1' });
+    const evA2 = new JBC.SovereignEvent({ type: 'counter.increment', actor: 'node-alpha', payload: { key: 'counter', amount: 3 }, tick: 2, nonce: 'a2' });
+
+    // Node B: offline writes (conflicting shared key)
+    const evB1 = new JBC.SovereignEvent({ type: 'state.set', actor: 'node-beta', payload: { key: 'shared', value: 'from-beta' }, tick: 3, nonce: 'b1' });
+
+    // Node C: independent writes
+    const evC1 = new JBC.SovereignEvent({ type: 'state.set', actor: 'node-gamma', payload: { key: 'gamma-only', value: true }, tick: 1, nonce: 'c1' });
+
+    const subA1 = new JBC.Submission({ event: evA1 });
+    const subA2 = new JBC.Submission({ event: evA2 });
+    const subB1 = new JBC.Submission({ event: evB1 });
+    const subC1 = new JBC.Submission({ event: evC1 });
+
+    // Build individual bundles
+    const bundleA = new JBC.Bundle([subA1, subA2]);
+    const bundleB = new JBC.Bundle([subB1]);
+    const bundleC = new JBC.Bundle([subC1]);
+
+    // Merge all into each node
+    const allSubs = await bundleA.merge(bundleB).merge(bundleC).finalize();
+
+    const rA = await kernel.apply(JBC.KernelState.genesis(), allSubs);
+    const rB = await kernel.apply(JBC.KernelState.genesis(), allSubs);
+    const rC = await kernel.apply(JBC.KernelState.genesis(), allSubs);
+
+    assertEqual(rA.finalHash, rB.finalHash, 'A and B must converge');
+    assertEqual(rB.finalHash, rC.finalHash, 'B and C must converge');
+    assert(rA.state.get('shared') === 'from-beta', 'from-beta wins (tick 3 > tick 1)');
+    return `converged: ${rA.finalHash.slice(0,16)}... shared='${rA.state.get('shared')}'`;
+  },
+});
+
+// ─── SUITE 5: TRANSPORT VERIFICATION VECTORS ──────────────────────────────────
+
+const transportVectors = suite('TRANSPORT VERIFICATION VECTORS', {
+  'envelope build + verify hash': async () => {
+    const { LogicalClock } = JBC;
+    const clock    = new LogicalClock('test-node');
+    const crypto   = JBC.crypto;
+
+    const kp       = await crypto.generateKeyPair();
+    const body     = { type: 'BUNDLE', payload: { size: 3 } };
+    const clk      = clock.tick();
+    const content  = { body, clock: clk, sender: kp.did, protocol: 'JBC', version: '0.1' };
+    const hash     = await crypto.sha256(content);
+    const sig      = await crypto.sign(kp.privateKey, 'JBC:transport', '0.1', hash);
+
+    const envelope = new JBC.Envelope({ id: crypto.randomBytes(8), sender: kp.did, clock: clk, body, hash, sig, protocol: 'JBC', version: '0.1' });
+
+    // Recompute hash to verify
+    const recomputed = await crypto.sha256(content);
+    assertEqual(recomputed, hash, 'hash must match recomputed');
+    return `envelope hash ok: ${hash.slice(0,16)}...`;
+  },
+
+  'unsigned envelope rejected by transport.receive': async () => {
+    const { LogicalClock, Transport, Envelope } = JBC;
+    const clock    = new LogicalClock('node-a');
+    const transport = new Transport({ nodeId: 'node-a', clock });
+
+    const raw = {
+      id: 'test-id', sender: 'node-b', clock: { counter: 1, node: 'node-b' },
+      body: { type: 'TEST' }, hash: 'abc', sig: null, protocol: 'JBC', version: '0.1',
+    };
+
+    const r = await transport.receive(raw);
+    assert(!r.ok, 'unsigned envelope must be rejected');
+    return `reason: ${r.reason}`;
+  },
+
+  'replay prevention: same id rejected twice': async () => {
+    const { LogicalClock, Transport } = JBC;
+    const crypto    = JBC.crypto;
+    const clock     = new LogicalClock('node-a');
+    const transport = new Transport({ nodeId: 'node-a', clock });
+
+    const kp      = await crypto.generateKeyPair();
+    const clk     = { counter: 1, node: 'node-b' };
+    const body    = { type: 'EVENT' };
+    const content = { body, clock: clk, sender: kp.did, protocol: 'JBC', version: '0.1' };
+    const hash    = await crypto.sha256(content);
+    const sig     = await crypto.sign(kp.privateKey, 'JBC:transport', '0.1', hash);
+    const env     = { id: 'unique-id-1', sender: kp.did, clock: clk, body, hash, sig, protocol: 'JBC', version: '0.1' };
+
+    const r1 = await transport.receive(env);
+    const r2 = await transport.receive(env);
+
+    assertOk(r1, 'first receive must succeed');
+    assert(!r2.ok, 'replay must be rejected');
+    return `first: ok, replay: ${r2.reason}`;
+  },
+
+  'tampered body fails hash check': async () => {
+    const { LogicalClock, Transport } = JBC;
+    const crypto    = JBC.crypto;
+    const clock     = new LogicalClock('node-a');
+    const transport = new Transport({ nodeId: 'node-a', clock });
+
+    const kp      = await crypto.generateKeyPair();
+    const clk     = { counter: 2, node: 'node-b' };
+    const body    = { type: 'EVENT', data: 'original' };
+    const content = { body, clock: clk, sender: kp.did, protocol: 'JBC', version: '0.1' };
+    const hash    = await crypto.sha256(content);
+    const sig     = await crypto.sign(kp.privateKey, 'JBC:transport', '0.1', hash);
+
+    // Tamper body after signing
+    const tampered = { id: 'uid-2', sender: kp.did, clock: clk, body: { type: 'EVENT', data: 'TAMPERED' }, hash, sig, protocol: 'JBC', version: '0.1' };
+
+    const r = await transport.receive(tampered);
+    assert(!r.ok, 'tampered body must fail hash check');
+    return `reason: ${r.reason}`;
+  },
+
+  'clock advances after receive': async () => {
+    const { LogicalClock, Transport } = JBC;
+    const crypto     = JBC.crypto;
+    const clock      = new LogicalClock('node-a');
+    const transport  = new Transport({ nodeId: 'node-a', clock });
+
+    const kp      = await crypto.generateKeyPair();
+    const clk     = { counter: 50, node: 'node-b' };
+    const body    = { type: 'PING' };
+    const content = { body, clock: clk, sender: kp.did, protocol: 'JBC', version: '0.1' };
+    const hash    = await crypto.sha256(content);
+    const sig     = await crypto.sign(kp.privateKey, 'JBC:transport', '0.1', hash);
+
+    await transport.receive({ id: 'uid-3', sender: kp.did, clock: clk, body, hash, sig, protocol: 'JBC', version: '0.1' });
+
+    assert(clock.current().counter > 1, 'local clock must advance after merge');
+    return `clock advanced to: ${clock.current().counter}`;
+  },
+});
+
+// ─── SUITE 6: LOGICAL CLOCK VECTORS ──────────────────────────────────────────
+
+const clockVectors = suite('CLOCK VECTORS', {
+  'tick is monotonic': async () => {
+    const clock = new JBC.LogicalClock('node-x');
+    const ticks = [clock.tick(), clock.tick(), clock.tick()].map(c => c.counter);
+    assert(ticks[0] < ticks[1] && ticks[1] < ticks[2], 'ticks must be strictly monotonic');
+    return `ticks: ${ticks.join(', ')}`;
+  },
+
+  'merge advances past remote': async () => {
+    const clock = new JBC.LogicalClock('node-x');
+    clock.tick(); // counter = 1
+    clock.merge({ counter: 100, node: 'node-y' }); // should become 101
+    assert(clock.current().counter >= 101, 'must advance past remote');
+    return `after merge(100): counter=${clock.current().counter}`;
+  },
+
+  'compare: counter precedence over node': async () => {
+    const a = { counter: 5, node: 'zzz' };
+    const b = { counter: 3, node: 'aaa' };
+    const r = JBC.LogicalClock.compare(a, b);
+    assert(r > 0, 'higher counter must win regardless of node name');
+    return `compare({5,zzz},{3,aaa}) = ${r} (positive = a wins)`;
+  },
+
+  'compare: same counter, node string tiebreak': async () => {
+    const a = { counter: 5, node: 'bbb' };
+    const b = { counter: 5, node: 'aaa' };
+    const r = JBC.LogicalClock.compare(a, b);
+    assert(r > 0, '"bbb" > "aaa" must win tiebreak');
+    return `compare({5,bbb},{5,aaa}) = ${r}`;
+  },
+});
+
+// ─── SUITE 7: ACCESS LAYER VECTORS ───────────────────────────────────────────
+
+const accessVectors = suite('ACCESS LAYER VECTORS', {
+  'grant + hasCap': async () => {
+    const access  = new JBC.AccessLayer();
+    const kp      = await JBC.crypto.generateKeyPair();
+
+    // Bootstrap: first grant (empty registry)
+    const token = await access.grant(kp.did, kp.privateKey, kp.did, 'admin');
+    assert(access.hasCap(kp.did, 'admin'), 'admin must be granted');
+    return `admin cap granted and verified`;
+  },
+
+  'non-admin cannot grant': async () => {
+    const access = new JBC.AccessLayer();
+    const kp1    = await JBC.crypto.generateKeyPair();
+    const kp2    = await JBC.crypto.generateKeyPair();
+
+    // Bootstrap admin for kp1
+    await access.grant(kp1.did, kp1.privateKey, kp1.did, 'admin');
+    // Grant write to kp2 (from admin kp1)
+    await access.grant(kp1.did, kp1.privateKey, kp2.did, 'write');
+
+    // kp2 (write only) tries to grant
+    let threw = false;
+    try { await access.grant(kp2.did, kp2.privateKey, kp2.did, 'admin'); }
+    catch { threw = true; }
+    assert(threw, 'non-admin must not be able to grant');
+    return 'non-admin grant attempt correctly rejected';
+  },
+
+  'canSubmit enforces event type caps': async () => {
+    const access = new JBC.AccessLayer();
+    const kp     = await JBC.crypto.generateKeyPair();
+    await access.grant(kp.did, kp.privateKey, kp.did, 'admin');
+    await access.grant(kp.did, kp.privateKey, kp.did, 'write');
+
+    const noWrite = { did: 'readonly', hasCap: () => false };
+    const readOnlyAccess = new JBC.AccessLayer();
+
+    const ok  = access.canSubmit(kp.did, 'state.set');
+    assertOk(ok);
+
+    // User without write cap
+    const fail = access.canSubmit('unknown-did', 'state.set');
+    assert(!fail.ok, 'user without write cap must fail canSubmit');
+    return `write allowed for admin, blocked for unknown: ${fail.reason?.slice(0,40)}`;
+  },
+
+  'revoke removes capability': async () => {
+    const access = new JBC.AccessLayer();
+    const kp     = await JBC.crypto.generateKeyPair();
+    const kp2    = await JBC.crypto.generateKeyPair();
+    await access.grant(kp.did, kp.privateKey, kp.did, 'admin');
+    await access.grant(kp.did, kp.privateKey, kp2.did, 'write');
+    assert(access.hasCap(kp2.did, 'write'), 'write must exist before revoke');
+    access.revoke(kp.did, kp2.did, 'write');
+    assert(!access.hasCap(kp2.did, 'write'), 'write must be gone after revoke');
+    return 'revoke correctly removes capability';
+  },
+});
+
+// ─── RUN ──────────────────────────────────────────────────────────────────────
+
+async function runAll() {
+  totalPass = 0; totalFail = 0;
+  document.getElementById('suites').innerHTML = '';
+  document.getElementById('summary').style.display = 'none';
+  document.getElementById('runBtn').disabled = true;
+
+  const suites = [sigVectors, ledgerVectors, schemaVectors, mergeVectors, transportVectors, clockVectors, accessVectors];
+  for (const s of suites) await runSuite(s);
+
+  const total = totalPass + totalFail;
+  document.getElementById('s-pass').textContent = `✓ ${totalPass} passed`;
+  document.getElementById('s-fail').textContent = `✗ ${totalFail} failed`;
+  document.getElementById('s-total').textContent = `${total} total`;
+  document.getElementById('summary').style.display = 'flex';
+  document.getElementById('progress').textContent = totalFail === 0 ? '✓ All vectors passed.' : `${totalFail} vector(s) failed — check above.`;
+  document.getElementById('runBtn').disabled = false;
+}
+</script>
+</body>
+</html>

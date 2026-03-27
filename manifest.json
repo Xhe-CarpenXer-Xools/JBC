@@ -1,0 +1,46 @@
+{
+  "name": "JBC",
+  "protocol": "0.1",
+  "crypto": "ECDSA-P256",
+  "clock": "logical",
+  "storage": "IndexedDB",
+  "transport": ["BroadcastChannel", "WebRTC"],
+  "ledger": "append-only",
+  "modules": [
+    "core/crypto.js",
+    "core/clock.js",
+    "core/ledger.js",
+    "core/identity.js",
+    "core/schema.js",
+    "core/kernel.js",
+    "core/storage.js",
+    "core/access.js",
+    "core/sync.js",
+    "core/query.js",
+    "core/transport.js"
+  ],
+  "loadOrder": [
+    "crypto",
+    "clock",
+    "schema",
+    "identity",
+    "ledger",
+    "kernel",
+    "access",
+    "sync",
+    "query",
+    "transport",
+    "storage"
+  ],
+  "namespace": "window.JBC",
+  "invariants": [
+    "I1: All state derives from ledger replay only",
+    "I2: Every event hash-chained to previous",
+    "I3: Signatures required — reject unsigned",
+    "I4: Deterministic replay: same events → same state",
+    "I5: Clock monotonic and merge-safe",
+    "I6: Schema validated before ledger append",
+    "I7: Access rights signed — no trust by UI flag",
+    "I8: Merge laws explicit — no undefined conflict outcome"
+  ]
+}
